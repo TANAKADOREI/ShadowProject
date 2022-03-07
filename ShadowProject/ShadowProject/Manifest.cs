@@ -135,7 +135,7 @@ namespace ShadowProject
                 public string[] Extensions = { "txt", "json" };
 
                 [JsonProperty("B__PleaseSelectTheNewlineYouWant(" + nameof(NEWLINE_CR) + "," + nameof(NEWLINE_LF) + "," 
-                    + nameof(NEWLINE_CRLF) + nameof(NEWLINE_NONE) + "," + nameof(NEWLINE_ERASE) + ")")]
+                    + nameof(NEWLINE_CRLF) +","+ nameof(NEWLINE_NONE) + "," + nameof(NEWLINE_ERASE) + ")")]
                 public string NewLine = nameof(NEWLINE_LF);
 
                 [JsonProperty("C__RemoveComment")]
