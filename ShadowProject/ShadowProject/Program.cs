@@ -21,6 +21,7 @@ namespace ShadowProject
             functions.Add(new Tuple<string, Action>(nameof(CreateAndOpenManifest), CreateAndOpenManifest));
             functions.Add(new Tuple<string, Action>(nameof(SyncAll), SyncAll));
             functions.Add(new Tuple<string, Action>(nameof(Sync), Sync));
+            functions.Add(new Tuple<string, Action>("Exit", () => { Environment.Exit(0); }));
 
             while (true)
             {
@@ -74,7 +75,7 @@ namespace ShadowProject
             return temp;
         }
 
-        private static T? ConsoleInput2<T>(string title, Converter<string, T> converter = null) where T : struct
+        private static T? ConsoleInput2<T>(string title, Converter<string, T> converter = null, Predicate<T> predicate = null) where T : struct
         {
         retry:
             Console.WriteLine("';' Type a semicolon to cancel");
@@ -94,17 +95,59 @@ namespace ShadowProject
                 goto retry;
             }
 
+            if (predicate != null)
+            {
+                if (!predicate(result)) goto retry;
+            }
+
             return result;
+        }
+
+        private static void Sync(Manifest manifest)
+        {
+            ShadowProjectGenerator.Run(new ShadowProjectGenerator.Resource()
+            {
+                Manifest = manifest,
+                Log = Console.WriteLine,
+                AccessDenied = (e) =>
+                {
+                    return ConsoleInput("retry?(y/n)", _ => _ == "y" || _ == "n") == "y";
+                },
+                ExceptionCallback = (e) =>
+                {
+                    Console.WriteLine("error while working : " + e);
+                }
+            });
         }
 
         private static void Sync()
         {
-            throw new NotImplementedException();
+            var files = Directory.GetFiles(MANIFEST_SAVE_DIR);
+
+            for (int i = 0; i < files.Length; i++)
+            {
+                Console.WriteLine($"[{i}] : {files[i]}");
+            }
+            int? index = ConsoleInput2<int>("select", _ => int.Parse(_), _ => 0 <= _ && _ < files.Length);
+
+            if (index == null) return;
+
+            Sync(JsonConvert.DeserializeObject<Manifest>(File.ReadAllText(files[index.Value])));
         }
 
         private static void SyncAll()
         {
-            throw new NotImplementedException();
+            foreach (var f in Directory.EnumerateFiles(MANIFEST_SAVE_DIR))
+            {
+                try
+                {
+                    Sync(JsonConvert.DeserializeObject<Manifest>(File.ReadAllText(f)));
+                }
+                catch (Exception e)
+                {
+                    Console.WriteLine($"failed : {f}, {e}");
+                }
+            }
         }
 
         private static void CreateAndOpenManifest()
@@ -124,7 +167,7 @@ namespace ShadowProject
 
             path = Path.GetFullPath(path);
 
-            if(File.Exists(path))
+            if (File.Exists(path))
             {
                 Console.WriteLine("already exist");
                 return;

@@ -2,6 +2,7 @@
 
 namespace ShadowProject
 {
+
     //Regular expression check in part order
     public class Manifest
     {
@@ -11,59 +12,75 @@ namespace ShadowProject
             public bool Enable = false;
         }
 
+        public class LogicItem
+        {
+            public const string LOGIC_AND = "AND";
+            public const string LOGIC_OR = "OR";
+
+            [JsonProperty("ChooseOneOf_" + LOGIC_AND + "_or_" + LOGIC_OR)]
+            public string Logic = LOGIC_OR;
+        }
+
         public class Selector : Item
         {
-            public class FileSearchRegex : Item
+            public class FileSearchRegex : LogicItem
             {
                 //only file name
-                [JsonProperty("UseFileNameRegex")]
+                [JsonProperty("B__UseFileNameRegex")]
                 public bool UseFileNameRegex = true;
-                [JsonProperty("FileNameRegex__IgnoreMode")]
+                [JsonProperty("B__FileNameRegex__InvertValue")]
                 public bool FileNameRegex__N = false;
-                [JsonProperty("FileNameRegex")]
+                [JsonProperty("B__FileNameRegex")]
                 public string FileNameRegex = @"\w";
 
                 //only extension string
-                [JsonProperty("UseExtRegex")]
+                [JsonProperty("C__UseExtRegex")]
                 public bool UseExtRegex = false;
-                [JsonProperty("ExtRegex__IgnoreMode")]
+                [JsonProperty("C__ExtRegex__InvertValue")]
                 public bool ExtRegex__N = false;
-                [JsonProperty("ExtRegex")]
+                [JsonProperty("C__ExtRegex")]
                 public string ExtRegex = "";
 
                 //name and ext
-                [JsonProperty("UseFileFullNameRegex")]
+                [JsonProperty("A__UseFileFullNameRegex")]
                 public bool UseFileFullNameRegex = false;
-                [JsonProperty("FileFullNameRegex__IgnoreMode")]
+                [JsonProperty("A__FileFullNameRegex__InvertValue")]
                 public bool FileFullNameRegex__N = false;
-                [JsonProperty("FileFullNameRegex")]
+                [JsonProperty("A__FileFullNameRegex")]
                 public string FileFullNameRegex = "";
 
                 //file fullpath
-                [JsonProperty("UseFilePathRegex")]
+                [JsonProperty("D__UseFilePathRegex")]
                 public bool UseFilePathRegex = false;
-                [JsonProperty("FilePathRegex__IgnoreMode")]
+                [JsonProperty("D__FilePathRegex__InvertValue")]
                 public bool FilePathRegex__N = false;
-                [JsonProperty("FilePathRegex")]
+                [JsonProperty("D__FilePathRegex")]
                 public string FilePathRegex = "";
             }
 
-            public class DirSearchRegex : Item
+            public class DirSearchRegex : LogicItem
             {
+                [JsonProperty("A__UseRelativePathDirNameRegex")]
+                public bool UseRelativePathDirNameRegex = true;
+                [JsonProperty("A__RelativePathDirNameRegex__N__InvertValue")]
+                public bool RelativePathDirNameRegex__N = false;
+                [JsonProperty("A__RelativePathDirNameRegex")]
+                public string RelativePathDirNameRegex = @"\w";
+
                 //only dir name
-                [JsonProperty("UseDirNameRegex")]
+                [JsonProperty("B__UseDirNameRegex")]
                 public bool UseDirNameRegex = true;
-                [JsonProperty("DirNameRegex__IgnoreMode")]
+                [JsonProperty("B__DirNameRegex__InvertValue")]
                 public bool DirNameRegex__N = false;
-                [JsonProperty("DirNameRegex")]
+                [JsonProperty("B__DirNameRegex")]
                 public string DirNameRegex = @"\w";
 
                 //dir fullpath
-                [JsonProperty("UseDirPathRegex")]
+                [JsonProperty("C__UseDirPathRegex")]
                 public bool UseDirPathRegex = false;
-                [JsonProperty("DirPathRegex__IgnoreMode")]
+                [JsonProperty("C__DirPathRegex__InvertValue")]
                 public bool DirPathRegex__N = false;
-                [JsonProperty("DirPathRegex")]
+                [JsonProperty("C__DirPathRegex")]
                 public string DirPathRegex = "";
             }
 
@@ -80,34 +97,57 @@ namespace ShadowProject
             {
                 public class CommentSearchRegex : Item
                 {
-                    [JsonProperty("IsLineRegex")]
-                    public bool IsLineRegex = true;
+                    [JsonProperty("SingleCommentSign")]
+                    public string SingleCommentSign = "";
 
-                    [JsonProperty("CommentSign")]
-                    public string CommentSign = "";
+                    [JsonProperty("MultiCommentOpenSign")]
+                    public string MultiCommentOpenSign = "";
 
-                    [JsonProperty("CommentOpenSign")]
-                    public string CommentOpenSign = "";
-
-                    [JsonProperty("CommentCloseSign")]
-                    public string CommentCloseSign = "";
+                    [JsonProperty("MultiCommentCloseSign")]
+                    public string MultiCommentCloseSign = "";
                 }
 
                 public class EncodingConverter : Item
                 {
-                    [JsonProperty("EncodingName")]
-                    public string EncodingName = System.Text.Encoding.UTF8.EncodingName;
+                    [JsonProperty("EncodingName__IfEmptyDontConvertEncoding")]
+                    public string EncodingName = System.Text.Encoding.UTF8.HeaderName;
                 }
-                [JsonProperty("Extensions")]
+
+                public class Indent : Item
+                {
+                    [JsonProperty("Space")]
+                    public int Space = 4;
+
+                    [JsonProperty("Tab")]
+                    public int Tab = 1;
+
+                    [JsonProperty("ConvertSapceToTab")]
+                    public bool ConvertSpaceToTab = false;
+                }
+
+                public const string NEWLINE_NONE = null;
+                public const string NEWLINE_ERASE = "";
+                public const string NEWLINE_CR = "\r";
+                public const string NEWLINE_LF = "\n";
+                public const string NEWLINE_CRLF = "\r\n";
+
+                [JsonProperty("A__Extensions")]
                 public string[] Extensions = { "txt", "json" };
 
-                [JsonProperty("NewlineChars")]
-                public string NewLineChar = "\n";
+                [JsonProperty("B__PleaseSelectTheNewlineYouWant(" + nameof(NEWLINE_CR) + "," + nameof(NEWLINE_LF) + "," 
+                    + nameof(NEWLINE_CRLF) + nameof(NEWLINE_NONE) + "," + nameof(NEWLINE_ERASE) + ")")]
+                public string NewLine = nameof(NEWLINE_LF);
 
-                [JsonProperty("CommentRemover")]
-                public CommentSearchRegex CommentRemover = new CommentSearchRegex();
+                [JsonProperty("C__RemoveComment")]
+                public bool RemoveComment = false;
 
-                [JsonProperty("Encoding")]
+                [JsonProperty("C__CommentRegex")]
+                public CommentSearchRegex CommentRegex = new CommentSearchRegex();
+
+                [JsonProperty("D__IndentConverter")]
+                public Indent IndentConverter = new Indent();
+
+                [JsonProperty("E__Encoding")]
                 public EncodingConverter Encoding = new EncodingConverter();
             }
 
@@ -115,16 +155,22 @@ namespace ShadowProject
             public TextFile[] Target_TextFile = { new TextFile() };
         }
 
+        [JsonProperty("IgnoreExceptions")]
+        public bool IgnoreExceptions = false;
+
         [JsonProperty("SourceDirectory")]
-        public string SourceDirectories = "";
+        public string SourceDirectory = "";
 
         [JsonProperty("DestDirectory")]
         public string DestDirectory = "";
 
-        [JsonProperty("Selector")]
-        public Selector m_selector = new Selector();
+        [JsonProperty("Selection")]
+        public Selector Selection = new Selector();
 
-        [JsonProperty("Proofreader")]
-        public Proofreader m_proofreader = new Proofreader();
+        [JsonProperty("FileProofreader")]
+        public Proofreader FileProofreader = new Proofreader();
+
+        [JsonProperty("BufferSize")]
+        public int BufferSize = 4096;
     }
 }
