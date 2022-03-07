@@ -11,11 +11,30 @@ namespace ShadowProject
 {
     public class Program
     {
-        const string MANIFEST_SAVE_DIR = "DATA";
+        static string MANIFEST_SAVE_DIR = Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "DATA"));
         const string MANIFEST_DOT_EXT = ".json";
 
         static void Main(string[] args)
         {
+            if (args != null && args.Length > 0)
+            {
+                StringBuilder builder = new StringBuilder();
+                foreach (var a in args)
+                {
+                    builder.Append(a);
+                    builder.Append(' ');
+                }
+
+                if (builder[builder.Length - 1] == ' ') builder.Remove(builder.Length - 1, 1);
+
+                string file_path = Path.Combine(MANIFEST_SAVE_DIR, builder.ToString() + MANIFEST_DOT_EXT);
+
+                Console.WriteLine(file_path);
+
+                Sync(JsonConvert.DeserializeObject<Manifest>(File.ReadAllText(file_path)));
+                return;
+            }
+
             List<Tuple<string, Action>> functions = new List<Tuple<string, Action>>();
             functions.Add(new Tuple<string, Action>(nameof(OpenManifestDirectory), OpenManifestDirectory));
             functions.Add(new Tuple<string, Action>(nameof(CreateAndOpenManifest), CreateAndOpenManifest));
