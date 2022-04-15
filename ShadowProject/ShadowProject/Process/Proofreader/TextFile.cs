@@ -8,7 +8,7 @@ namespace ShadowProject
 {
     public static partial class ShadowProjectGenerator
     {
-        //반환값 : 처리 여부. 한번도 처리되지 않았다면 false
+        //result : processed check. if it has never been dealt with false
         private static bool TextFileEditing(FileInfo file, Manifest.Proofreader.TextFile[] proofreaders, FileStream source, FileStream dest)
         {
             source.Seek(0, SeekOrigin.Begin);

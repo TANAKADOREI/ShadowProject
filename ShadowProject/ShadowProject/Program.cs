@@ -35,7 +35,10 @@ namespace ShadowProject
                 return;
             }
 
+            //add menu func
             List<Tuple<string, Action>> functions = new List<Tuple<string, Action>>();
+            functions.Add(new Tuple<string, Action>(nameof(PreviewManifestTarget), PreviewManifestTarget));
+            functions.Add(new Tuple<string, Action>(nameof(UpgradeManifest), UpgradeManifest));
             functions.Add(new Tuple<string, Action>(nameof(OpenManifestDirectory), OpenManifestDirectory));
             functions.Add(new Tuple<string, Action>(nameof(CreateAndOpenManifest), CreateAndOpenManifest));
             functions.Add(new Tuple<string, Action>(nameof(SyncAll), SyncAll));
@@ -216,6 +219,16 @@ namespace ShadowProject
             {
                 Console.WriteLine(path);
             }
+        }
+
+        private static void UpgradeManifest()
+        {
+            //todo
+        }
+
+        private static void PreviewManifestTarget()
+        {
+            //todo
         }
     }
 }

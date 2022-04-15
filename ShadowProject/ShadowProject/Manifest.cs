@@ -56,6 +56,16 @@ namespace ShadowProject
                 public bool FilePathRegex__N = false;
                 [JsonProperty("D__FilePathRegex")]
                 public string FilePathRegex = "";
+
+                [JsonProperty("E__UseFileInfo__CompareDateModified")]
+                public bool UseFileInfo__CompareDateModified = false;
+                [JsonProperty("E__FileInfo__CompareDateModified__InvertValue")]
+                public bool FileInfo__CompareDateModified__N = false;
+
+                [JsonProperty("F__UseFileInfo__CompareHash")]
+                public bool UseFileInfo__CompareHash = false;
+                [JsonProperty("F__FileInfo__CompareHash__InvertValue")]
+                public bool FileInfo__CompareHash__N = false;
             }
 
             public class DirSearchRegex : LogicItem
@@ -154,6 +164,11 @@ namespace ShadowProject
             [JsonProperty("TextFile__IsNotDocFile")]
             public TextFile[] Target_TextFile = { new TextFile() };
         }
+
+        public const uint MANIFEST_VERSION = 1;
+
+        [JsonProperty("MANIFEST_VERSION")]
+        public uint ManifestVersion = MANIFEST_VERSION;
 
         [JsonProperty("IgnoreExceptions")]
         public bool IgnoreExceptions = false;

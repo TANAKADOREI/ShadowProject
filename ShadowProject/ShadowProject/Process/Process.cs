@@ -9,17 +9,12 @@ namespace ShadowProject
 {
     public static partial class ShadowProjectGenerator
     {
-
-    }
-
-    public static partial class ShadowProjectGenerator
-    {
         public class Resource
         {
             public Manifest Manifest;
             public Action<object> Log;
             public Action<Exception> ExceptionCallback;
-            public Func<Exception, bool> AccessDenied;//재시도 : true, 무시 : false
+            public Func<Exception, bool> AccessDenied;//retry : true, ignore : false
         }
 
         private static Resource Res;
@@ -238,6 +233,18 @@ namespace ShadowProject
             }
         }
 
+        //modified data check
+        private static bool PredicateFileInfo__Date(FileInfo source_file)
+        {
+            //todo
+        }
+
+        //file hash check
+        private static bool PredicateFileInfo__Hash(FileInfo source_file)
+        {
+            //todo
+        }
+
         private static bool PredicateFile(FileInfo file, out FileInfo dest_file, out DirectoryInfo dest_parent)
         {
             dest_file = null;
@@ -246,29 +253,37 @@ namespace ShadowProject
             var regex = Manifest.Selection.FileSelectionRegex;
 
             var result = LOGIC(Manifest.Selection.FileSelectionRegex.Logic, () =>
-             {
-                 FileInfo _dest_file;
-                 DirectoryInfo _dest_parent;
-                 bool r = FileProcessing(file, out _dest_file, out _dest_parent);
+            {
+                FileInfo _dest_file;
+                DirectoryInfo _dest_parent;
+                bool r = FileProcessing(file, out _dest_file, out _dest_parent);
 
-                 return new { result = r, file = _dest_file, dir = _dest_parent };
-             }, () =>
-             {
-                 if (!regex.UseFileFullNameRegex) return null;
-                 return REGEX(file.Name + file.Extension, regex.FileFullNameRegex, regex.FileFullNameRegex__N);
-             }, () =>
-             {
-                 if (!regex.UseFileNameRegex) return null;
-                 return REGEX(file.Name, regex.FileNameRegex, regex.FileNameRegex__N);
-             }, () =>
-             {
-                 if (!regex.UseExtRegex) return null;
-                 return REGEX(file.Extension.Length == 0 ? "" : file.Extension.Remove(0, 1), regex.ExtRegex, regex.ExtRegex__N);
-             }, () =>
-             {
-                 if (!regex.UseFilePathRegex) return null;
-                 return REGEX(file.FullName, regex.FilePathRegex, regex.FilePathRegex__N);
-             });
+                return new { result = r, file = _dest_file, dir = _dest_parent };
+            }, () =>
+            {
+                if (!regex.UseFileFullNameRegex) return null;
+                return REGEX(file.Name + file.Extension, regex.FileFullNameRegex, regex.FileFullNameRegex__N);
+            }, () =>
+            {
+                if (!regex.UseFileNameRegex) return null;
+                return REGEX(file.Name, regex.FileNameRegex, regex.FileNameRegex__N);
+            }, () =>
+            {
+                if (!regex.UseExtRegex) return null;
+                return REGEX(file.Extension.Length == 0 ? "" : file.Extension.Remove(0, 1), regex.ExtRegex, regex.ExtRegex__N);
+            }, () =>
+            {
+                if (!regex.UseFilePathRegex) return null;
+                return REGEX(file.FullName, regex.FilePathRegex, regex.FilePathRegex__N);
+            }, () =>
+            {
+                if (!regex.UseFileInfo__CompareDateModified) return null;
+                return PredicateFileInfo__Date(file);
+            }, () =>
+            {
+                if (!regex.UseFileInfo__CompareHash) return null;
+                return PredicateFileInfo__Hash(file);
+            });
 
             if (result == null)
             {
@@ -285,13 +300,13 @@ namespace ShadowProject
         private static string ConvertAbsToNoBaseRel(string base_path, string path)
         {
             string temp = Path.GetFullPath(path).Replace(Path.GetFullPath(base_path), "");
-            
-            if(temp[0] == '/' || temp[0] == '\\')
+
+            if (temp[0] == '/' || temp[0] == '\\')
             {
                 temp = temp.Remove(0, 1);
             }
 
-            if (temp[temp.Length-1] == '/' || temp[temp.Length - 1] == '\\')
+            if (temp[temp.Length - 1] == '/' || temp[temp.Length - 1] == '\\')
             {
                 temp = temp.Remove(temp.Length - 1, 1);
             }
@@ -375,7 +390,7 @@ namespace ShadowProject
             {
                 try
                 {
-                    //파일에 대한 작업 여기서 추가
+                    //can file process add
                     if (TextFileEditing(file, Manifest.FileProofreader.Target_TextFile, source, dest)) return true;
                     CopyFile(file, source, dest);
                     return true;
@@ -401,11 +416,11 @@ namespace ShadowProject
 
             HashSet<string> updated_dest_dirs = Run(new DirectoryInfo(Manifest.SourceDirectory));
 
-            foreach(var dest_dir in Directory.EnumerateDirectories(Manifest.DestDirectory, "*", SearchOption.AllDirectories))
+            foreach (var dest_dir in Directory.EnumerateDirectories(Manifest.DestDirectory, "*", SearchOption.AllDirectories))
             {
                 if (!updated_dest_dirs.Contains(dest_dir))
                 {
-                    //대칭된 도착 디렉터리가 없다면 제거
+                    //Remove if mirrored directory does not exist
                     if (Directory.Exists(dest_dir))
                         Directory.Delete(dest_dir, true);
                 }
