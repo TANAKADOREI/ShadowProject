@@ -25,73 +25,65 @@ namespace ShadowProject
         {
             public class FileSearchRegex : LogicItem
             {
-                //only file name
-                [JsonProperty("B__UseFileNameRegex")]
-                public bool UseFileNameRegex = true;
-                [JsonProperty("B__FileNameRegex__InvertValue")]
-                public bool FileNameRegex__N = false;
-                [JsonProperty("B__FileNameRegex")]
-                public string FileNameRegex = @"\w";
+                public int Priority__FileNameRegex = 0;
+                public bool Use__FileNameRegex = false;
+                public bool N__FileNameRegex = false;
+                public string Regex__FileNameRegex = "";
 
-                //only extension string
-                [JsonProperty("C__UseExtRegex")]
-                public bool UseExtRegex = false;
-                [JsonProperty("C__ExtRegex__InvertValue")]
-                public bool ExtRegex__N = false;
-                [JsonProperty("C__ExtRegex")]
-                public string ExtRegex = "";
+                public int Priority__ExtRegex = 0;
+                public bool Use__ExtRegex = false;
+                public bool N__ExtRegex = false;
+                public string Regex__ExtRegex = "";
 
-                //name and ext
-                [JsonProperty("A__UseFileFullNameRegex")]
-                public bool UseFileFullNameRegex = false;
-                [JsonProperty("A__FileFullNameRegex__InvertValue")]
-                public bool FileFullNameRegex__N = false;
-                [JsonProperty("A__FileFullNameRegex")]
-                public string FileFullNameRegex = "";
+                public int Priority__FileFullNameRegex = 0;
+                public bool Use__FileFullNameRegex = false;
+                public bool N__FileFullNameRegex = false;
+                public string Regex__FileFullNameRegex = "";
 
-                //file fullpath
-                [JsonProperty("D__UseFilePathRegex")]
-                public bool UseFilePathRegex = false;
-                [JsonProperty("D__FilePathRegex__InvertValue")]
-                public bool FilePathRegex__N = false;
-                [JsonProperty("D__FilePathRegex")]
-                public string FilePathRegex = "";
+                public int Priority__FilePathRegex = 0;
+                public bool Use__FilePathRegex = false;
+                public bool N__FilePathRegex = false;
+                public string Regex__FilePathRegex = "";
 
-                [JsonProperty("E__UseFileInfo__CompareDateModified")]
-                public bool UseFileInfo__CompareDateModified = false;
-                [JsonProperty("E__FileInfo__CompareDateModified__InvertValue")]
-                public bool FileInfo__CompareDateModified__N = false;
+                public int Priority__FileInfo__CompareLastModifiedDate = 0;
+                public bool Use__FileInfo__CompareLastModifiedDate = false;
+                public bool N__FileInfo__CompareLastModifiedDate = false;
 
-                [JsonProperty("F__UseFileInfo__CompareHash")]
-                public bool UseFileInfo__CompareHash = false;
-                [JsonProperty("F__FileInfo__CompareHash__InvertValue")]
-                public bool FileInfo__CompareHash__N = false;
+                public int Priority__FileInfo__CompareLastAccessedDate = 0;
+                public bool Use__FileInfo__CompareLastAccessedDate = false;
+                public bool N__FileInfo__CompareLastAccessedDate = false;
+
+                public int Priority__FileInfo__CompareCreatedDate = 0;
+                public bool Use__FileInfo__CompareCreatedDate = false;
+                public bool N__FileInfo__CompareCreatedDate = false;
+
+                public int Priority__FileInfo__CompareHash = 0;
+                public bool Use__FileInfo__CompareHash = false;
+                public bool N__FileInfo__CompareHash = false;
+
+                public int Priority__FileInfo__CompareSize = 0;
+                public bool Use__FileInfo__CompareSize = false;
+                public bool N__FileInfo__CompareSize = false;
             }
 
             public class DirSearchRegex : LogicItem
             {
-                [JsonProperty("A__UseRelativePathDirNameRegex")]
-                public bool UseRelativePathDirNameRegex = true;
-                [JsonProperty("A__RelativePathDirNameRegex__N__InvertValue")]
-                public bool RelativePathDirNameRegex__N = false;
-                [JsonProperty("A__RelativePathDirNameRegex")]
-                public string RelativePathDirNameRegex = @"\w";
+                public int Priority__RelativePathDirNameRegex = 0;
+                public bool Use__UseRelativePathDirNameRegex = false;
+                public bool N__RelativePathDirNameRegex = false;
+                public string Regex__RelativePathDirNameRegex = "";
 
                 //only dir name
-                [JsonProperty("B__UseDirNameRegex")]
-                public bool UseDirNameRegex = true;
-                [JsonProperty("B__DirNameRegex__InvertValue")]
-                public bool DirNameRegex__N = false;
-                [JsonProperty("B__DirNameRegex")]
-                public string DirNameRegex = @"\w";
+                public int Priority__DirNameRegex = 0;
+                public bool Use__UseDirNameRegex = false;
+                public bool N__DirNameRegex = false;
+                public string Regex__DirNameRegex = "";
 
                 //dir fullpath
-                [JsonProperty("C__UseDirPathRegex")]
-                public bool UseDirPathRegex = false;
-                [JsonProperty("C__DirPathRegex__InvertValue")]
-                public bool DirPathRegex__N = false;
-                [JsonProperty("C__DirPathRegex")]
-                public string DirPathRegex = "";
+                public int Priority__DirPathRegex = 0;
+                public bool Use__UseDirPathRegex = false;
+                public bool N__DirPathRegex = false;
+                public string Regex__DirPathRegex = "";
             }
 
             [JsonProperty("DirectorySelectionRegex")]
@@ -169,9 +161,6 @@ namespace ShadowProject
 
         [JsonProperty("MANIFEST_VERSION")]
         public uint ManifestVersion = MANIFEST_VERSION;
-
-        [JsonProperty("IgnoreExceptions")]
-        public bool IgnoreExceptions = false;
 
         [JsonProperty("SourceDirectory")]
         public string SourceDirectory = "";

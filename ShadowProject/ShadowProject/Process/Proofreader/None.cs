@@ -5,7 +5,7 @@ using System.Text;
 
 namespace ShadowProject
 {
-    public static partial class ShadowProjectGenerator
+    public partial class ShadowProjectGenerator
     {
         private static void CopyFile(FileInfo file, FileStream source, FileStream dest)
         {

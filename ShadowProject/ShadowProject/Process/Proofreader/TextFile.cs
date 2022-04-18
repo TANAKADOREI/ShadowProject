@@ -6,7 +6,7 @@ using System.Text;
 
 namespace ShadowProject
 {
-    public static partial class ShadowProjectGenerator
+    public partial class ShadowProjectGenerator
     {
         //result : processed check. if it has never been dealt with false
         private static bool TextFileEditing(FileInfo file, Manifest.Proofreader.TextFile[] proofreaders, FileStream source, FileStream dest)

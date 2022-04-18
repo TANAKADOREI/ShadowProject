@@ -127,7 +127,7 @@ namespace ShadowProject
 
         private static void Sync(Manifest manifest)
         {
-            ShadowProjectGenerator.Run(new ShadowProjectGenerator.Resource()
+            ShadowProjectGenerator.Run2(new ShadowProjectGenerator.Handle()
             {
                 Manifest = manifest,
                 Log = Console.WriteLine,
