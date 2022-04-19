@@ -8,7 +8,7 @@ namespace ShadowProject
 {
     public partial class ShadowProjectProccessor
     {
-        private SQLiteConnection DB__Open(string name,out bool created)
+        private SQLiteConnection DB__Open(string name, out bool created)
         {
             name = GetSDWPFilePath(name);
             created = false;
@@ -24,7 +24,7 @@ namespace ShadowProject
             return conn;
         }
 
-        private static void DateDB__CreateOrOpenTable(SQLiteConnection connection,string table)
+        private static void DateDB__CreateOrOpenTable(SQLiteConnection connection, string table)
         {
             string SQ_CREATE = $"CREATE TABLE {table} (path TEXT PRIMARY KEY, time INTEGER)";
             SQLiteCommand command = new SQLiteCommand(SQ_CREATE, connection);
@@ -44,16 +44,26 @@ namespace ShadowProject
             string SQ_WHERE = $"SELECT * FROM {table} WHERE path = '{path}'";
 
             SQLiteCommand cmd = new SQLiteCommand(SQ_WHERE, connection);
-            SQLiteDataReader rdr = cmd.ExecuteReader();
-            rdr.Read();
-            DateTime old = new DateTime((long)rdr["time"]);
-            rdr.Close();
+            bool result = false;
 
-            return old == time;
+            using (SQLiteDataReader rdr = cmd.ExecuteReader())
+            {
+                DateTime old = default;
+                if (rdr.Read())
+                {
+                    old = new DateTime((long)rdr["time"]);
+                    result = old == time;
+                    goto end;
+                }
+            }
+
+            end:
+            DateDB__UpdateOrInsert(connection, table, path, time);
+            return result;
         }
 
         SQLiteConnection m_sql;
-        const string SQLDB_NAME = "mixed.db";
+        const string SQLDB_NAME = "mixed.sqlite";
         const string SQL_TABLE__CREATEDTIME = "CREATED_TIME";
         const string SQL_TABLE__LASTACCESSEDTIME = "LASTACCESSED_TIME";
         const string SQL_TABLE__LASTMODIFIEDTIME = "LASTMODIFIED_TIME";
@@ -62,7 +72,7 @@ namespace ShadowProject
         {
             bool created_db;
             if (m_sql != null) return;
-            m_sql = DB__Open(NICKNAME + SQLDB_NAME,out created_db);
+            m_sql = DB__Open(NICKNAME + SQLDB_NAME, out created_db);
 
             if (created_db)
             {
@@ -75,8 +85,10 @@ namespace ShadowProject
         private void CloseDB()
         {
             if (m_sql == null) return;
-            m_sql.CloseAsync().Wait() ;
-            m_sql.Dispose();
+            m_sql.CloseAsync().Wait();
+            m_sql.DisposeAsync().AsTask().Wait();
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
             m_sql = null;
         }
     }

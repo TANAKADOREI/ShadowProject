@@ -18,6 +18,7 @@ namespace ShadowProject.Utils
             m_shutdown_req = false;
             m_task_queue = new Queue<Action>();
             m_thread = new Thread(Update);
+            m_thread.Start();
         }
 
         ~TaskPool()

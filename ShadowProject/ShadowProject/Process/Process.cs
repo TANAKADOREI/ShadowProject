@@ -124,7 +124,7 @@ namespace ShadowProject
 
             if (Directory.Exists(GetSDWPDirPath(m_handle.OriginalDirectory)))
             {
-                if(Directory.GetFiles(GetSDWPDirPath(m_handle.OriginalDirectory)).Length== 0)
+                if (Directory.GetFiles(GetSDWPDirPath(m_handle.OriginalDirectory)).Length == 0)
                 {
                     Directory.Delete(GetSDWPDirPath(m_handle.OriginalDirectory));
                 }
@@ -174,22 +174,14 @@ namespace ShadowProject
 
             if (Logic == Manifest.LogicItem.LOGIC_OR)
             {
-                if (rs.Count == 0)
-                {
-                    return successed();
-                }
-                else if (rs.Contains(true))
+                if (rs.Contains(true))
                 {
                     return successed();
                 }
             }
-            else if (Logic == ShadowProject.Manifest.LogicItem.LOGIC_AND)
+            else if (Logic == Manifest.LogicItem.LOGIC_AND)
             {
-                if (rs.Count == 0)
-                {
-                    return successed();
-                }
-                else if (rs.Contains(false))
+                if (!rs.Contains(false))
                 {
                     return successed();
                 }
@@ -223,20 +215,7 @@ namespace ShadowProject
                 }
             }
 
-            //디렉터리 청소
-            {
-                foreach (string dest_dir in Directory.EnumerateDirectories(m_manifest.DestDirectory, "*", SearchOption.AllDirectories))
-                {
-                    if (target_dirs.Item1.Find(_ => _ == dest_dir) == null)
-                    {
-                        //Remove if mirrored directory does not exist
-                        if (Directory.Exists(dest_dir))
-                            Directory.Delete(dest_dir, true);
-                    }
-                }
-
-                OptimizeDirectory(new DirectoryInfo(m_manifest.DestDirectory));
-            }
+            OptimizeDirectory(new DirectoryInfo(m_manifest.DestDirectory));
 
             Running = false;
         }
@@ -287,8 +266,7 @@ namespace ShadowProject
                     {
                         if (m_manifest.Selection.DirectorySelectionRegex.Use__UseDirNameRegex)
                         {
-                            string nobase_relative_path = ConvertAbsToNoBaseRel(m_manifest.SourceDirectory, sub.FullName);
-                            return IF_INVERSE(REGEX(nobase_relative_path, m_manifest.Selection.DirectorySelectionRegex.Regex__DirNameRegex),
+                            return IF_INVERSE(REGEX(sub.Name, m_manifest.Selection.DirectorySelectionRegex.Regex__DirNameRegex),
                                 m_manifest.Selection.DirectorySelectionRegex.N__DirNameRegex);
                         }
                         else
@@ -303,8 +281,7 @@ namespace ShadowProject
                     {
                         if (m_manifest.Selection.DirectorySelectionRegex.Use__UseDirPathRegex)
                         {
-                            string nobase_relative_path = ConvertAbsToNoBaseRel(m_manifest.SourceDirectory, sub.FullName);
-                            return IF_INVERSE(REGEX(nobase_relative_path, m_manifest.Selection.DirectorySelectionRegex.Regex__DirPathRegex),
+                            return IF_INVERSE(REGEX(sub.FullName, m_manifest.Selection.DirectorySelectionRegex.Regex__DirPathRegex),
                                 m_manifest.Selection.DirectorySelectionRegex.N__DirPathRegex);
                         }
                         else
@@ -344,32 +321,37 @@ namespace ShadowProject
 
             foreach (var f in dir.EnumerateFiles())
             {
-                TaskQueue.Add(() =>
+                //TaskQueue.Add(() =>
                 {
                     string dest_file = null;
                     PredicateCheckAndSync(f, out dest_file);
 
-                    if (dest_file != null) updated_dest_files.Add(dest_file);
-                });
+                    if (dest_file != null)
+                        updated_dest_files.Add(dest_file);
+                }//);
             }
 
-            TaskQueue.WaitForRemainTask();
+            //TaskQueue.WaitForRemainTask();
 
             DirectoryInfo dest = new DirectoryInfo(ConvertSourceToDest(dir.FullName));
-            foreach (FileInfo dest_file in dest.EnumerateFiles())
+
+            if (dest.Exists)
             {
-                //업데이트 목록에 있는가? || 삭제된 파일은 아닌지?
-                if (!updated_dest_files.Contains(Path.GetFullPath(dest_file.FullName)) || !File.Exists(ConvertDestToSource(dest_file.FullName)))
+                foreach (FileInfo dest_file in dest.EnumerateFiles())
                 {
-                re:
-                    try
+                    //업데이트 목록에 있는가? || 삭제된 파일은 아닌지?
+                    if (!File.Exists(ConvertDestToSource(dest_file.FullName)))
                     {
-                        dest_file.Delete();
-                    }
-                    catch (Exception e)
-                    {
-                        m_handle.Log(Handle.LogLevel.FAIL, e.GetType().Name, e.Message);
-                        if (m_handle.Retry()) goto re;
+                    re:
+                        try
+                        {
+                            dest_file.Delete();
+                        }
+                        catch (Exception e)
+                        {
+                            m_handle.Log(Handle.LogLevel.FAIL, e.GetType().Name, e.Message);
+                            if (m_handle.Retry()) goto re;
+                        }
                     }
                 }
             }
@@ -391,28 +373,31 @@ namespace ShadowProject
                 () =>
                 {
                     if (!regex.Use__ExtRegex) return null;
-                    return IF_INVERSE(REGEX(source_file.Name + source_file.Extension, regex.Regex__ExtRegex), regex.N__ExtRegex);
+                    return IF_INVERSE(REGEX(source_file.Extension == null ? "" : source_file.Extension.Length <= 1 ? "" : source_file.Extension.Remove(0, 1),
+                        regex.Regex__ExtRegex), regex.N__ExtRegex);
                 }
             ), new Tuple<int, Func<bool?>>(
                 m_manifest.Selection.FileSelectionRegex.Priority__FileFullNameRegex,
                 () =>
                 {
                     if (!regex.Use__FileFullNameRegex) return null;
-                    return IF_INVERSE(REGEX(source_file.Name + source_file.Extension, regex.Regex__FileFullNameRegex), regex.N__FileFullNameRegex);
+                    return IF_INVERSE(REGEX(source_file.Name, regex.Regex__FileFullNameRegex), regex.N__FileFullNameRegex);
                 }
             ), new Tuple<int, Func<bool?>>(
                 m_manifest.Selection.FileSelectionRegex.Priority__FileNameRegex,
                 () =>
                 {
                     if (!regex.Use__FileNameRegex) return null;
-                    return IF_INVERSE(REGEX(source_file.Name + source_file.Extension, regex.Regex__FileNameRegex), regex.N__FileNameRegex);
+                    string ext = (source_file.Extension == null || source_file.Extension.Length == 1) ? "" : source_file.Extension.Remove(0, 1);
+                    return IF_INVERSE(REGEX(source_file.Name.Replace(ext, "").Replace(".", ""),
+                        regex.Regex__FileNameRegex), regex.N__FileNameRegex);
                 }
             ), new Tuple<int, Func<bool?>>(
                 m_manifest.Selection.FileSelectionRegex.Priority__FilePathRegex,
                 () =>
                 {
                     if (!regex.Use__FilePathRegex) return null;
-                    return IF_INVERSE(REGEX(source_file.Name + source_file.Extension, regex.Regex__FilePathRegex), regex.N__FilePathRegex);
+                    return IF_INVERSE(REGEX(source_file.FullName, regex.Regex__FilePathRegex), regex.N__FilePathRegex);
                 }
             ),
 
@@ -454,7 +439,7 @@ namespace ShadowProject
                 }
             ));//<- add file predicate
 
-            if (result == null)
+            if (result == null || result.file == null)
             {
                 dest_file = null;
                 return false;

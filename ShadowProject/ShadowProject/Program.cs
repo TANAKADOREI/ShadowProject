@@ -298,12 +298,14 @@ namespace ShadowProject
                     LOG(ShadowProjectProccessor.Handle.LogLevel.NONE, $"[{i.Key}]:{i.Value}", "Delete Begin");
                     DeleteShadow(i.Key, i.Value);
                     LOG(ShadowProjectProccessor.Handle.LogLevel.SUCCESS, $"[{i.Key}]:{i.Value}", "Delete End");
+                    g_registered_sync_directories.Remove(i.Key);
                 }
                 catch (Exception e)
                 {
                     LOG(ShadowProjectProccessor.Handle.LogLevel.FAIL, $"[{i.Key}]:{i.Value}", e.ToString());
                 }
             }
+            SaveRegisteredDirs();
         }
 
         private static void Register()
