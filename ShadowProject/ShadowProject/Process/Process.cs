@@ -44,11 +44,14 @@ namespace ShadowProject
         private Config m_config;
         private Manifest m_manifest;
 
-        public ShadowProjectProccessor(Handle handle)
+        private string NICKNAME;
+
+        public ShadowProjectProccessor(string nickname, Handle handle)
         {
+            NICKNAME = $"{nickname}--";
             m_handle = handle;
             OpenDB();
-            UpdateProfile();
+            UpdateSDWP();
         }
 
         ~ShadowProjectProccessor()
@@ -61,7 +64,7 @@ namespace ShadowProject
             CloseDB();
         }
 
-        private string GetProfileDirPath(string source_dir_path)
+        private string GetSDWPDirPath(string source_dir_path)
         {
             string path = Path.GetDirectoryName(Path.GetFullPath(source_dir_path));
             path = Path.Combine(path, "__SDWP_PROFILE__");
@@ -69,31 +72,63 @@ namespace ShadowProject
             return path;
         }
 
-        private T GetDataFile<T>(string name) where T : new()
+        private string GetSDWPFilePath(string name)
+        {
+            return Path.GetFullPath(Path.Combine(GetSDWPDirPath(m_handle.OriginalDirectory), name));
+        }
+
+        private T GetJsonDataFile<T>(string name, T only_create__instance = default) where T : new()
         {
             string path = null;
-            if (File.Exists(path = Path.Combine(GetProfileDirPath(m_handle.OriginalDirectory), name)))
+            if (File.Exists(path = Path.Combine(GetSDWPDirPath(m_handle.OriginalDirectory), name)))
             {
                 return JsonConvert.DeserializeObject<T>(File.ReadAllText(path));
             }
             else
             {
-                T obj = new T();
-                File.WriteAllText(path, JsonConvert.SerializeObject(obj));
+                T obj = only_create__instance == null ? new T() : only_create__instance;
+                File.WriteAllText(path, JsonConvert.SerializeObject(obj, Formatting.Indented));
                 return obj;
             }
         }
 
-        public void UpdateProfile()
+        public void UpdateSDWP()
         {
             if (Running) return;
 
-            m_config = GetDataFile<Config>("CONFIG.json");
-            m_manifest = GetDataFile<Manifest>("MANIFEST.json");
+            m_config = GetJsonDataFile<Config>(NICKNAME + "CONFIG.json");
+            m_manifest = GetJsonDataFile<Manifest>(NICKNAME + "MANIFEST.json", new Manifest()
+            {
+                SourceDirectory = Path.GetFullPath(m_handle.OriginalDirectory),
+                DestDirectory = Path.GetFullPath(m_handle.OriginalDirectory)
+            });
+
+            m_manifest.SourceDirectory = Path.GetFullPath(m_manifest.SourceDirectory);
+            m_manifest.DestDirectory = Path.GetFullPath(m_manifest.DestDirectory);
 
             TaskQueue = new TaskPool(m_config.ThreadCount);
             StringBuilderPool = new Pool<StringBuilder>(() => new StringBuilder(), m_config.StringBuilderPoolCapacity);
             BufferPool = new Pool<byte[]>(() => new byte[m_config.BufferSize], m_config.BufferPoolCapacity);
+        }
+
+        public void DeleteShadow()
+        {
+            string path = GetSDWPFilePath(NICKNAME + "CONFIG.json");
+            if (File.Exists(path)) File.Delete(path);
+
+            path = GetSDWPFilePath(NICKNAME + "MANIFEST.json");
+            if (File.Exists(path)) File.Delete(path);
+
+            path = GetSDWPFilePath(NICKNAME + SQLDB_NAME);
+            if (File.Exists(path)) File.Delete(path);
+
+            if (Directory.Exists(GetSDWPDirPath(m_handle.OriginalDirectory)))
+            {
+                if(Directory.GetFiles(GetSDWPDirPath(m_handle.OriginalDirectory)).Length== 0)
+                {
+                    Directory.Delete(GetSDWPDirPath(m_handle.OriginalDirectory));
+                }
+            }
         }
 
         private bool IF_INVERSE(bool logic_result, bool n)
@@ -175,10 +210,14 @@ namespace ShadowProject
 
         public void Processing()
         {
+            if (Running) return;
+
+            Running = true;
+
             var target_dirs = PreviewTargetDirs();
 
             {
-                foreach(var d in target_dirs.Item1)
+                foreach (var d in target_dirs.Item1)
                 {
                     FindTargetFilesAndSync(new DirectoryInfo(d));
                 }
@@ -198,6 +237,8 @@ namespace ShadowProject
 
                 OptimizeDirectory(new DirectoryInfo(m_manifest.DestDirectory));
             }
+
+            Running = false;
         }
 
         private void OptimizeDirectory(DirectoryInfo info)
@@ -298,15 +339,43 @@ namespace ShadowProject
         //해당폴더 내에서 일어남
         private void FindTargetFilesAndSync(DirectoryInfo dir)
         {
+            HashSet<string> updated_dest_files = new HashSet<string>();
+
+
             foreach (var f in dir.EnumerateFiles())
             {
-                TaskQueue.Add(()=>PredicateCheckAndSync(f));
+                TaskQueue.Add(() =>
+                {
+                    string dest_file = null;
+                    PredicateCheckAndSync(f, out dest_file);
+
+                    if (dest_file != null) updated_dest_files.Add(dest_file);
+                });
             }
 
             TaskQueue.WaitForRemainTask();
+
+            DirectoryInfo dest = new DirectoryInfo(ConvertSourceToDest(dir.FullName));
+            foreach (FileInfo dest_file in dest.EnumerateFiles())
+            {
+                //업데이트 목록에 있는가? || 삭제된 파일은 아닌지?
+                if (!updated_dest_files.Contains(Path.GetFullPath(dest_file.FullName)) || !File.Exists(ConvertDestToSource(dest_file.FullName)))
+                {
+                re:
+                    try
+                    {
+                        dest_file.Delete();
+                    }
+                    catch (Exception e)
+                    {
+                        m_handle.Log(Handle.LogLevel.FAIL, e.GetType().Name, e.Message);
+                        if (m_handle.Retry()) goto re;
+                    }
+                }
+            }
         }
 
-        private bool PredicateCheckAndSync(FileInfo file)
+        private bool PredicateCheckAndSync(FileInfo source_file, out string dest_file)
         {
             var regex = m_manifest.Selection.FileSelectionRegex;
 
@@ -314,7 +383,7 @@ namespace ShadowProject
             {
                 FileInfo _dest_file;
                 DirectoryInfo _dest_parent;
-                bool r = FileProcessing(file, out _dest_file, out _dest_parent);
+                bool r = FileProcessing(source_file, out _dest_file, out _dest_parent);
 
                 return new { result = r, file = _dest_file, dir = _dest_parent };
             }, new Tuple<int, Func<bool?>>(
@@ -322,74 +391,76 @@ namespace ShadowProject
                 () =>
                 {
                     if (!regex.Use__ExtRegex) return null;
-                    return IF_INVERSE(REGEX(file.Name + file.Extension, regex.Regex__ExtRegex), regex.N__ExtRegex);
+                    return IF_INVERSE(REGEX(source_file.Name + source_file.Extension, regex.Regex__ExtRegex), regex.N__ExtRegex);
                 }
             ), new Tuple<int, Func<bool?>>(
                 m_manifest.Selection.FileSelectionRegex.Priority__FileFullNameRegex,
                 () =>
                 {
                     if (!regex.Use__FileFullNameRegex) return null;
-                    return IF_INVERSE(REGEX(file.Name + file.Extension, regex.Regex__FileFullNameRegex), regex.N__FileFullNameRegex);
+                    return IF_INVERSE(REGEX(source_file.Name + source_file.Extension, regex.Regex__FileFullNameRegex), regex.N__FileFullNameRegex);
                 }
             ), new Tuple<int, Func<bool?>>(
                 m_manifest.Selection.FileSelectionRegex.Priority__FileNameRegex,
                 () =>
                 {
                     if (!regex.Use__FileNameRegex) return null;
-                    return IF_INVERSE(REGEX(file.Name + file.Extension, regex.Regex__FileNameRegex), regex.N__FileNameRegex);
+                    return IF_INVERSE(REGEX(source_file.Name + source_file.Extension, regex.Regex__FileNameRegex), regex.N__FileNameRegex);
                 }
             ), new Tuple<int, Func<bool?>>(
                 m_manifest.Selection.FileSelectionRegex.Priority__FilePathRegex,
                 () =>
                 {
                     if (!regex.Use__FilePathRegex) return null;
-                    return IF_INVERSE(REGEX(file.Name + file.Extension, regex.Regex__FilePathRegex), regex.N__FilePathRegex);
+                    return IF_INVERSE(REGEX(source_file.Name + source_file.Extension, regex.Regex__FilePathRegex), regex.N__FilePathRegex);
                 }
-            ), 
-            
-            
+            ),
+
+
             new Tuple<int, Func<bool?>>(
                 m_manifest.Selection.FileSelectionRegex.Priority__FileInfo__CompareSize,
                 () =>
                 {
                     if (!regex.Use__FileInfo__CompareSize) return null;
-                    return IF_INVERSE(!ComparePredicate__Size(file), regex.N__FileInfo__CompareSize);
+                    return IF_INVERSE(!ComparePredicate__Size(source_file), regex.N__FileInfo__CompareSize);
                 }
             ), new Tuple<int, Func<bool?>>(
                 m_manifest.Selection.FileSelectionRegex.Priority__FileInfo__CompareCreatedDate,
                 () =>
                 {
                     if (!regex.Use__FileInfo__CompareCreatedDate) return null;
-                    return IF_INVERSE(!ComparePredicate__CreatedDate(file), regex.N__FileInfo__CompareCreatedDate);
+                    return IF_INVERSE(!ComparePredicate__CreatedDate(source_file), regex.N__FileInfo__CompareCreatedDate);
                 }
             ), new Tuple<int, Func<bool?>>(
                 m_manifest.Selection.FileSelectionRegex.Priority__FileInfo__CompareHash,
                 () =>
                 {
                     if (!regex.Use__FileInfo__CompareHash) return null;
-                    return IF_INVERSE(!ComparePredicate__Hash(file), regex.N__FileInfo__CompareHash);
+                    return IF_INVERSE(!ComparePredicate__Hash(source_file), regex.N__FileInfo__CompareHash);
                 }
             ), new Tuple<int, Func<bool?>>(
                 m_manifest.Selection.FileSelectionRegex.Priority__FileInfo__CompareLastAccessedDate,
                 () =>
                 {
                     if (!regex.Use__FileInfo__CompareLastAccessedDate) return null;
-                    return IF_INVERSE(!ComparePredicate__LastAccessedDate(file), regex.N__FileInfo__CompareLastAccessedDate);
+                    return IF_INVERSE(!ComparePredicate__LastAccessedDate(source_file), regex.N__FileInfo__CompareLastAccessedDate);
                 }
             ), new Tuple<int, Func<bool?>>(
                 m_manifest.Selection.FileSelectionRegex.Priority__FileInfo__CompareLastModifiedDate,
                 () =>
                 {
                     if (!regex.Use__FileInfo__CompareLastModifiedDate) return null;
-                    return IF_INVERSE(!ComparePredicate__LastModifiedDate(file), regex.N__FileInfo__CompareLastModifiedDate);
+                    return IF_INVERSE(!ComparePredicate__LastModifiedDate(source_file), regex.N__FileInfo__CompareLastModifiedDate);
                 }
             ));//<- add file predicate
 
             if (result == null)
             {
+                dest_file = null;
                 return false;
             }
 
+            dest_file = Path.GetFullPath(result.file.FullName);
             return result.result;
         }
 

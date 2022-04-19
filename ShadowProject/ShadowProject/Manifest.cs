@@ -18,7 +18,7 @@ namespace ShadowProject
             public const string LOGIC_OR = "OR";
 
             [JsonProperty("ChooseOneOf_" + LOGIC_AND + "_or_" + LOGIC_OR)]
-            public string Logic = LOGIC_OR;
+            public string Logic = LOGIC_AND;
         }
 
         public class Selector : Item
@@ -173,8 +173,5 @@ namespace ShadowProject
 
         [JsonProperty("FileProofreader")]
         public Proofreader FileProofreader = new Proofreader();
-
-        [JsonProperty("BufferSize")]
-        public int BufferSize = 4096;
     }
 }

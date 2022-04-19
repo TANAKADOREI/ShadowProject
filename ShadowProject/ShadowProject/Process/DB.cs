@@ -8,29 +8,27 @@ namespace ShadowProject
 {
     public partial class ShadowProjectProccessor
     {
-        private static SQLiteConnection DB__Open(string path)
+        private SQLiteConnection DB__Open(string name,out bool created)
         {
-            if (!File.Exists(path))
+            name = GetSDWPFilePath(name);
+            created = false;
+            if (!File.Exists(name))
             {
-                SQLiteConnection.CreateFile(path);
+                created = true;
+                SQLiteConnection.CreateFile(name);
             }
 
-            var conn = new SQLiteConnection($"Data Source={path};Version=3;");
+            var conn = new SQLiteConnection($"Data Source={name};Version=3;");
             conn.Open();
 
             return conn;
         }
 
-        private static SQLiteConnection DateDB__Open(string table, string path)
+        private static void DateDB__CreateOrOpenTable(SQLiteConnection connection,string table)
         {
             string SQ_CREATE = $"CREATE TABLE {table} (path TEXT PRIMARY KEY, time INTEGER)";
-
-            var connection = DB__Open(path);
-
             SQLiteCommand command = new SQLiteCommand(SQ_CREATE, connection);
             int result = command.ExecuteNonQuery();
-
-            return connection;
         }
 
         private static void DateDB__UpdateOrInsert(SQLiteConnection connection, string table, string path, DateTime time)
@@ -62,15 +60,23 @@ namespace ShadowProject
 
         private void OpenDB()
         {
+            bool created_db;
             if (m_sql != null) return;
-            m_sql = DateDB__Open(SQLDB_NAME,SQL_TABLE__CREATEDTIME);
-            m_sql = DateDB__Open(SQLDB_NAME, SQL_TABLE__LASTACCESSEDTIME);
-            m_sql = DateDB__Open(SQLDB_NAME, SQL_TABLE__LASTMODIFIEDTIME);
+            m_sql = DB__Open(NICKNAME + SQLDB_NAME,out created_db);
+
+            if (created_db)
+            {
+                DateDB__CreateOrOpenTable(m_sql, SQL_TABLE__CREATEDTIME);
+                DateDB__CreateOrOpenTable(m_sql, SQL_TABLE__LASTACCESSEDTIME);
+                DateDB__CreateOrOpenTable(m_sql, SQL_TABLE__LASTMODIFIEDTIME);
+            }
         }
 
         private void CloseDB()
         {
-            m_sql.Close();
+            if (m_sql == null) return;
+            m_sql.CloseAsync().Wait() ;
+            m_sql.Dispose();
             m_sql = null;
         }
     }

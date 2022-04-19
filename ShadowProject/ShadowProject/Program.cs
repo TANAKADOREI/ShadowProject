@@ -40,7 +40,7 @@ namespace ShadowProject
             File.WriteAllText(path, JsonConvert.SerializeObject(g_registered_sync_directories));
         }
 
-        static void CommandLineArgsProc(StringBuilder builder)
+        static void CommandLineArgsProc(StringBuilder builder)//<- nickname
         {
             if (!g_registered_sync_directories.ContainsKey(builder.ToString()))
             {
@@ -48,8 +48,8 @@ namespace ShadowProject
                 return;
             }
 
-            LOG(ShadowProjectProccessor.Handle.LogLevel.NONE,builder.ToString(),g_registered_sync_directories[builder.ToString()]);
-            Sync(builder.ToString());
+            LOG(ShadowProjectProccessor.Handle.LogLevel.NONE, builder.ToString(), g_registered_sync_directories[builder.ToString()]);
+            Sync(builder.ToString(),g_registered_sync_directories[builder.ToString()]);
         }
 
         static void Main(string[] args)
@@ -73,9 +73,12 @@ namespace ShadowProject
 
             //add menu func
             List<Tuple<string, Action>> functions = new List<Tuple<string, Action>>();
+            functions.Add(new Tuple<string, Action>(nameof(ShowList), ShowList));
             functions.Add(new Tuple<string, Action>(nameof(Register), Register));
             functions.Add(new Tuple<string, Action>(nameof(SyncAll), SyncAll));
             functions.Add(new Tuple<string, Action>(nameof(Sync), Sync));
+            functions.Add(new Tuple<string, Action>(nameof(DeleteShadow), DeleteShadow));
+            functions.Add(new Tuple<string, Action>(nameof(DeleteAllShadow), DeleteAllShadow));
             functions.Add(new Tuple<string, Action>("Exit", () => { Environment.Exit(0); }));
 
             while (true)
@@ -107,7 +110,7 @@ namespace ShadowProject
                 }
 
             end:
-                Console.WriteLine("Done.");
+                LOG(ShadowProjectProccessor.Handle.LogLevel.SUCCESS,"Done.","");
                 Console.ReadLine();
                 Console.Clear();
             }
@@ -153,17 +156,9 @@ namespace ShadowProject
             return result;
         }
 
-        private static void Sync(string dir_path)
+        private static ShadowProjectProccessor GenSDWPP(string nickname,string dir)
         {
-            using (ShadowProjectProccessor proccessor = GenSDWPP(dir_path))
-            {
-                proccessor.Processing();
-            }
-        }
-
-        private static ShadowProjectProccessor GenSDWPP(string dir)
-        {
-            return new ShadowProjectProccessor(new ShadowProjectProccessor.Handle()
+            return new ShadowProjectProccessor(nickname, new ShadowProjectProccessor.Handle()
             {
                 Log = LOG,
                 OriginalDirectory = dir,
@@ -191,8 +186,14 @@ namespace ShadowProject
                     break;
             }
 
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.Write('[');
             Console.ForegroundColor = color;
-            Console.WriteLine($"[{arg2}] : {arg3}");
+            Console.Write(arg2);
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.Write(']');
+            Console.ForegroundColor = color;
+            Console.WriteLine(arg3);
 
             Console.ForegroundColor = ConsoleColor.White;
         }
@@ -212,18 +213,61 @@ namespace ShadowProject
             }
         }
 
+        private static void DeleteShadow(string nickname, string dir_path)
+        {
+            using (ShadowProjectProccessor proccessor = GenSDWPP(nickname, dir_path))
+            {
+                proccessor.Dispose();
+                proccessor.DeleteShadow();
+            }
+        }
+
+        private static void Sync(string nickname, string dir_path)
+        {
+            using (ShadowProjectProccessor proccessor = GenSDWPP(nickname, dir_path))
+            {
+                proccessor.Processing();
+            }
+        }
+
+        private static void ShowList()
+        {
+            foreach (var i in g_registered_sync_directories)
+            {
+                Console.WriteLine($"nickname : {i.Key}, path : {i.Value}");
+            }
+        }
+
         private static void Sync()
         {
+            LoadReigsteredDirs();
             var arr = g_registered_sync_directories.ToArray();
             for (int i = 0; i < arr.Length; i++)
             {
-                Console.WriteLine($"[{arr[i].Key}] : {arr[i].Value}");
+                Console.WriteLine($"[{i}] : {arr[i].Key}--{arr[i].Value}");
             }
-            int? index = ConsoleInput2<int>("select", _ => int.Parse(_), _ => 0 <= _ && _ < arr.Length);
+            int? index = ConsoleInput2<int>("select index", _ => int.Parse(_), _ => 0 <= _ && _ < arr.Length);
 
             if (index == null) return;
 
-            Sync(arr[index.Value].Value);
+            Sync(arr[index.Value].Key, arr[index.Value].Value);
+        }
+
+        private static void DeleteShadow()
+        {
+            LoadReigsteredDirs();
+            var arr = g_registered_sync_directories.ToArray();
+            for (int i = 0; i < arr.Length; i++)
+            {
+                Console.WriteLine($"[{i}] : {arr[i].Key}--{arr[i].Value}");
+            }
+            int? index = ConsoleInput2<int>("select index", _ => int.Parse(_), _ => 0 <= _ && _ < arr.Length);
+
+            if (index == null) return;
+
+            DeleteShadow(arr[index.Value].Key, arr[index.Value].Value);
+            g_registered_sync_directories.Remove(arr[index.Value].Key);
+            SaveRegisteredDirs();
         }
 
         private static void SyncAll()
@@ -234,8 +278,26 @@ namespace ShadowProject
                 try
                 {
                     LOG(ShadowProjectProccessor.Handle.LogLevel.NONE, $"[{i.Key}]:{i.Value}", "Sync Begin");
-                    Sync(i.Value);
+                    Sync(i.Key,i.Value);
                     LOG(ShadowProjectProccessor.Handle.LogLevel.SUCCESS, $"[{i.Key}]:{i.Value}", "Sync End");
+                }
+                catch (Exception e)
+                {
+                    LOG(ShadowProjectProccessor.Handle.LogLevel.FAIL, $"[{i.Key}]:{i.Value}", e.ToString());
+                }
+            }
+        }
+
+        private static void DeleteAllShadow()
+        {
+            LoadReigsteredDirs();
+            foreach (var i in g_registered_sync_directories)
+            {
+                try
+                {
+                    LOG(ShadowProjectProccessor.Handle.LogLevel.NONE, $"[{i.Key}]:{i.Value}", "Delete Begin");
+                    DeleteShadow(i.Key, i.Value);
+                    LOG(ShadowProjectProccessor.Handle.LogLevel.SUCCESS, $"[{i.Key}]:{i.Value}", "Delete End");
                 }
                 catch (Exception e)
                 {
@@ -251,7 +313,8 @@ namespace ShadowProject
             LoadReigsteredDirs();
             try
             {
-                using (ShadowProjectProccessor proccessor = GenSDWPP(dir_path))
+                if (g_registered_sync_directories.ContainsKey(name)) throw new Exception($"already exists name -> {name}");
+                using (ShadowProjectProccessor proccessor = GenSDWPP(name,dir_path))
                 {
                 }
                 g_registered_sync_directories.Add(name, dir_path);
