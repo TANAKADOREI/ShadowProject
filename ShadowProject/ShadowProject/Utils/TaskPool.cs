@@ -25,7 +25,7 @@ namespace ShadowProject.Utils
             Dispose();
         }
 
-        private void WaitForRemainTask()
+        public void WaitForRemainTask()
         {
             lock (m_lock_key)
             {

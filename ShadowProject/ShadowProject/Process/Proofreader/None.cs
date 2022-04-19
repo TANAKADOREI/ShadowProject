@@ -5,19 +5,22 @@ using System.Text;
 
 namespace ShadowProject
 {
-    public partial class ShadowProjectGenerator
+    public partial class ShadowProjectProccessor
     {
-        private static void CopyFile(FileInfo file, FileStream source, FileStream dest)
+        private void CopyFile(FileInfo file, FileStream source, FileStream dest)
         {
-            byte[] buffer = NewBuffer;
-            int read = 0;
-
-            source.Seek(0, SeekOrigin.Begin);
-            dest.Seek(0, SeekOrigin.Begin);
-
-            while ((read = source.Read(buffer)) > 0)
+            using (var _buffer = BufferPool.Get())
             {
-                dest.Write(buffer, 0, read);
+                byte[] buffer = _buffer.Get;
+                int read = 0;
+
+                source.Seek(0, SeekOrigin.Begin);
+                dest.Seek(0, SeekOrigin.Begin);
+
+                while ((read = source.Read(buffer)) > 0)
+                {
+                    dest.Write(buffer, 0, read);
+                }
             }
         }
     }

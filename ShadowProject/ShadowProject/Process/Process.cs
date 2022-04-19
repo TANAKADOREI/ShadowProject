@@ -9,12 +9,14 @@ using System.Text.RegularExpressions;
 
 namespace ShadowProject
 {
-    public partial class ShadowProjectGenerator
+    public partial class ShadowProjectProccessor : IDisposable
     {
         public class Config
         {
             public uint ThreadCount = 4;
             public int StringBuilderPoolCapacity = 16;
+            public int BufferSize = 4096;
+            public int BufferPoolCapacity = 16;
         }
 
         public class Handle
@@ -33,22 +35,30 @@ namespace ShadowProject
             public Func<bool> Retry;//retry : true, ignore : false
         }
 
-
-
         private TaskPool TaskQueue;
         private Pool<StringBuilder> StringBuilderPool;
+        private Pool<byte[]> BufferPool;
         private bool Running = false;
 
         private Handle m_handle;
         private Config m_config;
         private Manifest m_manifest;
-        private LatestFileInfo m_latest;
 
-        public ShadowProjectGenerator(Handle handle)
+        public ShadowProjectProccessor(Handle handle)
         {
             m_handle = handle;
-
+            OpenDB();
             UpdateProfile();
+        }
+
+        ~ShadowProjectProccessor()
+        {
+            Dispose();
+        }
+
+        public void Dispose()
+        {
+            CloseDB();
         }
 
         private string GetProfileDirPath(string source_dir_path)
@@ -80,10 +90,10 @@ namespace ShadowProject
 
             m_config = GetDataFile<Config>("CONFIG.json");
             m_manifest = GetDataFile<Manifest>("MANIFEST.json");
-            m_latest = GetDataFile<LatestFileInfo>("LATESTDATA.json");
 
             TaskQueue = new TaskPool(m_config.ThreadCount);
             StringBuilderPool = new Pool<StringBuilder>(() => new StringBuilder(), m_config.StringBuilderPoolCapacity);
+            BufferPool = new Pool<byte[]>(() => new byte[m_config.BufferSize], m_config.BufferPoolCapacity);
         }
 
         private bool IF_INVERSE(bool logic_result, bool n)
@@ -290,8 +300,10 @@ namespace ShadowProject
         {
             foreach (var f in dir.EnumerateFiles())
             {
-                PredicateCheckAndSync(f);
+                TaskQueue.Add(()=>PredicateCheckAndSync(f));
             }
+
+            TaskQueue.WaitForRemainTask();
         }
 
         private bool PredicateCheckAndSync(FileInfo file)
@@ -320,34 +332,6 @@ namespace ShadowProject
                     return IF_INVERSE(REGEX(file.Name + file.Extension, regex.Regex__FileFullNameRegex), regex.N__FileFullNameRegex);
                 }
             ), new Tuple<int, Func<bool?>>(
-                m_manifest.Selection.FileSelectionRegex.Priority__FileInfo__CompareCreatedDate,
-                () =>
-                {
-                    if (!regex.Use__FileInfo__CompareCreatedDate) return null;
-                    return IF_INVERSE(Predicate__CreatedDate(), regex.N__FileInfo__CompareCreatedDate);
-                }
-            ), new Tuple<int, Func<bool?>>(
-                m_manifest.Selection.FileSelectionRegex.Priority__FileInfo__CompareHash,
-                () =>
-                {
-                    if (!regex.Use__FileInfo__CompareHash) return null;
-                    return IF_INVERSE(Predicate__Hash(), regex.N__FileInfo__CompareHash);
-                }
-            ), new Tuple<int, Func<bool?>>(
-                m_manifest.Selection.FileSelectionRegex.Priority__FileInfo__CompareLastAccessedDate,
-                () =>
-                {
-                    if (!regex.Use__FileInfo__CompareLastAccessedDate) return null;
-                    return IF_INVERSE(Predicate__LastAccessedDate(), regex.N__FileInfo__CompareLastAccessedDate);
-                }
-            ), new Tuple<int, Func<bool?>>(
-                m_manifest.Selection.FileSelectionRegex.Priority__FileInfo__CompareLastModifiedDate,
-                () =>
-                {
-                    if (!regex.Use__FileInfo__CompareLastModifiedDate) return null;
-                    return IF_INVERSE(Predicate__LastModifiedDate(), regex.N__FileInfo__CompareLastModifiedDate);
-                }
-            ), new Tuple<int, Func<bool?>>(
                 m_manifest.Selection.FileSelectionRegex.Priority__FileNameRegex,
                 () =>
                 {
@@ -361,12 +345,43 @@ namespace ShadowProject
                     if (!regex.Use__FilePathRegex) return null;
                     return IF_INVERSE(REGEX(file.Name + file.Extension, regex.Regex__FilePathRegex), regex.N__FilePathRegex);
                 }
-            ), new Tuple<int, Func<bool?>>(
+            ), 
+            
+            
+            new Tuple<int, Func<bool?>>(
                 m_manifest.Selection.FileSelectionRegex.Priority__FileInfo__CompareSize,
                 () =>
                 {
                     if (!regex.Use__FileInfo__CompareSize) return null;
-                    return IF_INVERSE(Predicate__Size(), regex.N__FileInfo__CompareSize);
+                    return IF_INVERSE(!ComparePredicate__Size(file), regex.N__FileInfo__CompareSize);
+                }
+            ), new Tuple<int, Func<bool?>>(
+                m_manifest.Selection.FileSelectionRegex.Priority__FileInfo__CompareCreatedDate,
+                () =>
+                {
+                    if (!regex.Use__FileInfo__CompareCreatedDate) return null;
+                    return IF_INVERSE(!ComparePredicate__CreatedDate(file), regex.N__FileInfo__CompareCreatedDate);
+                }
+            ), new Tuple<int, Func<bool?>>(
+                m_manifest.Selection.FileSelectionRegex.Priority__FileInfo__CompareHash,
+                () =>
+                {
+                    if (!regex.Use__FileInfo__CompareHash) return null;
+                    return IF_INVERSE(!ComparePredicate__Hash(file), regex.N__FileInfo__CompareHash);
+                }
+            ), new Tuple<int, Func<bool?>>(
+                m_manifest.Selection.FileSelectionRegex.Priority__FileInfo__CompareLastAccessedDate,
+                () =>
+                {
+                    if (!regex.Use__FileInfo__CompareLastAccessedDate) return null;
+                    return IF_INVERSE(!ComparePredicate__LastAccessedDate(file), regex.N__FileInfo__CompareLastAccessedDate);
+                }
+            ), new Tuple<int, Func<bool?>>(
+                m_manifest.Selection.FileSelectionRegex.Priority__FileInfo__CompareLastModifiedDate,
+                () =>
+                {
+                    if (!regex.Use__FileInfo__CompareLastModifiedDate) return null;
+                    return IF_INVERSE(!ComparePredicate__LastModifiedDate(file), regex.N__FileInfo__CompareLastModifiedDate);
                 }
             ));//<- add file predicate
 

@@ -9,13 +9,53 @@ using System.Text;
 
 namespace ShadowProject
 {
+
     public class Program
     {
-        static string MANIFEST_SAVE_DIR = Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "DATA"));
-        const string MANIFEST_DOT_EXT = ".json";
+        public static string ExeDirPath()
+        {
+            return AppDomain.CurrentDomain.BaseDirectory;
+        }
+
+        static Dictionary<string, string> g_registered_sync_directories = new Dictionary<string, string>();
+
+        static void LoadReigsteredDirs()
+        {
+            const string FILE = "targets.json";
+
+            string path = Path.Combine(ExeDirPath(), FILE);
+
+            if (!File.Exists(path))
+            {
+                File.WriteAllText(path, JsonConvert.SerializeObject(g_registered_sync_directories));
+            }
+
+            g_registered_sync_directories = JsonConvert.DeserializeObject<Dictionary<string, string>>(File.ReadAllText(path));
+        }
+
+        static void SaveRegisteredDirs()
+        {
+            const string FILE = "targets.json";
+            string path = Path.Combine(ExeDirPath(), FILE);
+            File.WriteAllText(path, JsonConvert.SerializeObject(g_registered_sync_directories));
+        }
+
+        static void CommandLineArgsProc(StringBuilder builder)
+        {
+            if (!g_registered_sync_directories.ContainsKey(builder.ToString()))
+            {
+                LOG(ShadowProjectProccessor.Handle.LogLevel.FAIL, "not found", builder.ToString());
+                return;
+            }
+
+            LOG(ShadowProjectProccessor.Handle.LogLevel.NONE,builder.ToString(),g_registered_sync_directories[builder.ToString()]);
+            Sync(builder.ToString());
+        }
 
         static void Main(string[] args)
         {
+            LoadReigsteredDirs();
+
             if (args != null && args.Length > 0)
             {
                 StringBuilder builder = new StringBuilder();
@@ -27,31 +67,19 @@ namespace ShadowProject
 
                 if (builder[builder.Length - 1] == ' ') builder.Remove(builder.Length - 1, 1);
 
-                string file_path = Path.Combine(MANIFEST_SAVE_DIR, builder.ToString() + MANIFEST_DOT_EXT);
-
-                Console.WriteLine(file_path);
-
-                Sync(JsonConvert.DeserializeObject<Manifest>(File.ReadAllText(file_path)));
+                CommandLineArgsProc(builder);
                 return;
             }
 
             //add menu func
             List<Tuple<string, Action>> functions = new List<Tuple<string, Action>>();
-            functions.Add(new Tuple<string, Action>(nameof(PreviewManifestTarget), PreviewManifestTarget));
-            functions.Add(new Tuple<string, Action>(nameof(UpgradeManifest), UpgradeManifest));
-            functions.Add(new Tuple<string, Action>(nameof(OpenManifestDirectory), OpenManifestDirectory));
-            functions.Add(new Tuple<string, Action>(nameof(CreateAndOpenManifest), CreateAndOpenManifest));
+            functions.Add(new Tuple<string, Action>(nameof(Register), Register));
             functions.Add(new Tuple<string, Action>(nameof(SyncAll), SyncAll));
             functions.Add(new Tuple<string, Action>(nameof(Sync), Sync));
             functions.Add(new Tuple<string, Action>("Exit", () => { Environment.Exit(0); }));
 
             while (true)
             {
-                if (!Directory.Exists(MANIFEST_SAVE_DIR))
-                {
-                    Directory.CreateDirectory(MANIFEST_SAVE_DIR);
-                }
-
                 Console.WriteLine("Functions...");
                 for (int i = 0; i < functions.Count; i++)
                 {
@@ -125,110 +153,115 @@ namespace ShadowProject
             return result;
         }
 
-        private static void Sync(Manifest manifest)
+        private static void Sync(string dir_path)
         {
-            ShadowProjectGenerator.Run2(new ShadowProjectGenerator.Handle()
+            using (ShadowProjectProccessor proccessor = GenSDWPP(dir_path))
             {
-                Manifest = manifest,
-                Log = Console.WriteLine,
-                AccessDenied = (e) =>
-                {
-                    return ConsoleInput("retry?(y/n)", _ => _ == "y" || _ == "n") == "y";
-                },
-                ExceptionCallback = (e) =>
-                {
-                    Console.WriteLine("error while working : " + e);
-                }
+                proccessor.Processing();
+            }
+        }
+
+        private static ShadowProjectProccessor GenSDWPP(string dir)
+        {
+            return new ShadowProjectProccessor(new ShadowProjectProccessor.Handle()
+            {
+                Log = LOG,
+                OriginalDirectory = dir,
+                Retry = RETRY
             });
+        }
+
+        private static void LOG(ShadowProjectProccessor.Handle.LogLevel arg1, string arg2, string arg3)
+        {
+            ConsoleColor color = ConsoleColor.White;
+
+            switch (arg1)
+            {
+                case ShadowProjectProccessor.Handle.LogLevel.NONE:
+                    color = ConsoleColor.White;
+                    break;
+                case ShadowProjectProccessor.Handle.LogLevel.SUCCESS:
+                    color = ConsoleColor.Blue;
+                    break;
+                case ShadowProjectProccessor.Handle.LogLevel.FAIL:
+                    color = ConsoleColor.Red;
+                    break;
+                case ShadowProjectProccessor.Handle.LogLevel.IGNORE:
+                    color = ConsoleColor.Yellow;
+                    break;
+            }
+
+            Console.ForegroundColor = color;
+            Console.WriteLine($"[{arg2}] : {arg3}");
+
+            Console.ForegroundColor = ConsoleColor.White;
+        }
+
+        private static bool RETRY()
+        {
+        re:
+            Console.Write("\nRetry?(y/n) : ");
+            switch (Console.ReadKey().Key)
+            {
+                case ConsoleKey.Y:
+                    return true;
+                case ConsoleKey.N:
+                    return false;
+                default:
+                    goto re;
+            }
         }
 
         private static void Sync()
         {
-            var files = Directory.GetFiles(MANIFEST_SAVE_DIR);
-
-            for (int i = 0; i < files.Length; i++)
+            var arr = g_registered_sync_directories.ToArray();
+            for (int i = 0; i < arr.Length; i++)
             {
-                Console.WriteLine($"[{i}] : {files[i]}");
+                Console.WriteLine($"[{arr[i].Key}] : {arr[i].Value}");
             }
-            int? index = ConsoleInput2<int>("select", _ => int.Parse(_), _ => 0 <= _ && _ < files.Length);
+            int? index = ConsoleInput2<int>("select", _ => int.Parse(_), _ => 0 <= _ && _ < arr.Length);
 
             if (index == null) return;
 
-            Sync(JsonConvert.DeserializeObject<Manifest>(File.ReadAllText(files[index.Value])));
+            Sync(arr[index.Value].Value);
         }
 
         private static void SyncAll()
         {
-            foreach (var f in Directory.EnumerateFiles(MANIFEST_SAVE_DIR))
+            LoadReigsteredDirs();
+            foreach (var i in g_registered_sync_directories)
             {
                 try
                 {
-                    Sync(JsonConvert.DeserializeObject<Manifest>(File.ReadAllText(f)));
+                    LOG(ShadowProjectProccessor.Handle.LogLevel.NONE, $"[{i.Key}]:{i.Value}", "Sync Begin");
+                    Sync(i.Value);
+                    LOG(ShadowProjectProccessor.Handle.LogLevel.SUCCESS, $"[{i.Key}]:{i.Value}", "Sync End");
                 }
                 catch (Exception e)
                 {
-                    Console.WriteLine($"failed : {f}, {e}");
+                    LOG(ShadowProjectProccessor.Handle.LogLevel.FAIL, $"[{i.Key}]:{i.Value}", e.ToString());
                 }
             }
         }
 
-        private static void CreateAndOpenManifest()
+        private static void Register()
         {
-            string filename = ConsoleInput("Profile name", (_) =>
+            string dir_path = Path.GetFullPath(ConsoleInput("Source directory path to sync", _ => Directory.Exists(_)));
+            string name = ConsoleInput("directory alias");
+            LoadReigsteredDirs();
+            try
             {
-                foreach (var c in Path.GetInvalidFileNameChars())
+                using (ShadowProjectProccessor proccessor = GenSDWPP(dir_path))
                 {
-                    if (_.Contains(c)) return false;
                 }
-                return true;
-            });
-
-            if (filename == null) return;
-
-            string path = Path.Combine(MANIFEST_SAVE_DIR, filename + MANIFEST_DOT_EXT);
-
-            path = Path.GetFullPath(path);
-
-            if (File.Exists(path))
-            {
-                Console.WriteLine("already exist");
+                g_registered_sync_directories.Add(name, dir_path);
+                SaveRegisteredDirs();
                 return;
-            }
-
-            File.WriteAllText(path, JsonConvert.SerializeObject(new Manifest(), Formatting.Indented), Encoding.UTF8);
-
-            try
-            {
-                Process.Start(path);
-            }
-            catch
-            {
-                Console.WriteLine(path);
-            }
-        }
-
-        private static void OpenManifestDirectory()
-        {
-            string path = Path.GetFullPath(MANIFEST_SAVE_DIR);
-
-            try
-            {
-                Process.Start(path);
             }
             catch (Exception e)
             {
-                Console.WriteLine(path);
+                LOG(ShadowProjectProccessor.Handle.LogLevel.FAIL, e.StackTrace, e.ToString());
             }
-        }
-
-        private static void UpgradeManifest()
-        {
-            //todo
-        }
-
-        private static void PreviewManifestTarget()
-        {
-            //todo
         }
     }
 }

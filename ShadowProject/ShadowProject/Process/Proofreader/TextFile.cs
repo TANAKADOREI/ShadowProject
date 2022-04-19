@@ -6,10 +6,10 @@ using System.Text;
 
 namespace ShadowProject
 {
-    public partial class ShadowProjectGenerator
+    public partial class ShadowProjectProccessor
     {
         //result : processed check. if it has never been dealt with false
-        private static bool TextFileEditing(FileInfo file, Manifest.Proofreader.TextFile[] proofreaders, FileStream source, FileStream dest)
+        private bool TextFileEditing(FileInfo file, Manifest.Proofreader.TextFile[] proofreaders, FileStream source, FileStream dest)
         {
             source.Seek(0, SeekOrigin.Begin);
             dest.Seek(0, SeekOrigin.Begin);
@@ -18,157 +18,163 @@ namespace ShadowProject
 
             StreamReader reader = new StreamReader(source);
 
-            Builder.Clear();
-            Builder.Append(reader.ReadToEnd());
-
-            foreach (var p in proofreaders)
+            using (var Builder = StringBuilderPool.Get())
             {
-                if (!p.Enable) continue;
-                processed = true;
 
+                Builder.Get.Clear();
+                Builder.Get.Append(reader.ReadToEnd());
+
+                foreach (var p in proofreaders)
                 {
-                    string ext = file.Extension.Length == 0 ? "" : file.Extension.Remove(0, 1);
-                    if (p.Extensions.Where(e => e == ext) == null) continue;
-                }
+                    if (!p.Enable) continue;
+                    processed = true;
 
-                {
-                    const string TEMP_NEWLINE_SIGN = "<<NEWLINE>>";
-                    string newline = null;
-
-                    switch (p.NewLine)
                     {
-                        case nameof(Manifest.Proofreader.TextFile.NEWLINE_CR):
-                            newline = Manifest.Proofreader.TextFile.NEWLINE_CR;
-                            break;
-                        case nameof(Manifest.Proofreader.TextFile.NEWLINE_LF):
-                            newline = Manifest.Proofreader.TextFile.NEWLINE_LF;
-                            break;
-                        case nameof(Manifest.Proofreader.TextFile.NEWLINE_CRLF):
-                            newline = Manifest.Proofreader.TextFile.NEWLINE_CRLF;
-                            break;
-                        case nameof(Manifest.Proofreader.TextFile.NEWLINE_NONE):
-                            newline = Manifest.Proofreader.TextFile.NEWLINE_NONE;
-                            break;
-                        case nameof(Manifest.Proofreader.TextFile.NEWLINE_ERASE):
-                            newline = Manifest.Proofreader.TextFile.NEWLINE_ERASE;
-                            break;
-                        default:
-                            throw new Exception("unknown newline : " + p.NewLine);
+                        string ext = file.Extension.Length == 0 ? "" : file.Extension.Remove(0, 1);
+                        if (p.Extensions.Where(e => e == ext) == null) continue;
                     }
 
-                    if (newline != null)
                     {
-                        Builder.Replace(Manifest.Proofreader.TextFile.NEWLINE_CRLF, TEMP_NEWLINE_SIGN);
-                        Builder.Replace(Manifest.Proofreader.TextFile.NEWLINE_LF, TEMP_NEWLINE_SIGN);
-                        Builder.Replace(Manifest.Proofreader.TextFile.NEWLINE_CR, TEMP_NEWLINE_SIGN);
-                        Builder.Replace(TEMP_NEWLINE_SIGN, newline);
-                    }
-                }
+                        const string TEMP_NEWLINE_SIGN = "<<NEWLINE>>";
+                        string newline = null;
 
-                /*
-                if (p.CommentRegex.Enable)
-                {
-                    //주석 구간. 시작 인덱스,길이
-                    List<Tuple<int, int>> section = new List<Tuple<int, int>>();
-
-                    int start_start = -1, start_count = -1;
-                    int end_start = -1, end_count = -1;
-
-                    for (int i = 0; i < Builder.Length; i++)
-                    {
-                        if (PredicateCommentSign(Builder, i, p.CommentRegex.SingleCommentSign, ref start_start, ref start_count))
+                        switch (p.NewLine)
                         {
-                            for (i = start_count; i < Builder.Length; i++)
+                            case nameof(Manifest.Proofreader.TextFile.NEWLINE_CR):
+                                newline = Manifest.Proofreader.TextFile.NEWLINE_CR;
+                                break;
+                            case nameof(Manifest.Proofreader.TextFile.NEWLINE_LF):
+                                newline = Manifest.Proofreader.TextFile.NEWLINE_LF;
+                                break;
+                            case nameof(Manifest.Proofreader.TextFile.NEWLINE_CRLF):
+                                newline = Manifest.Proofreader.TextFile.NEWLINE_CRLF;
+                                break;
+                            case nameof(Manifest.Proofreader.TextFile.NEWLINE_NONE):
+                                newline = Manifest.Proofreader.TextFile.NEWLINE_NONE;
+                                break;
+                            case nameof(Manifest.Proofreader.TextFile.NEWLINE_ERASE):
+                                newline = Manifest.Proofreader.TextFile.NEWLINE_ERASE;
+                                break;
+                            default:
+                                throw new Exception("unknown newline : " + p.NewLine);
+                        }
+
+                        if (newline != null)
+                        {
+                            Builder.Get.Replace(Manifest.Proofreader.TextFile.NEWLINE_CRLF, TEMP_NEWLINE_SIGN);
+                            Builder.Get.Replace(Manifest.Proofreader.TextFile.NEWLINE_LF, TEMP_NEWLINE_SIGN);
+                            Builder.Get.Replace(Manifest.Proofreader.TextFile.NEWLINE_CR, TEMP_NEWLINE_SIGN);
+                            Builder.Get.Replace(TEMP_NEWLINE_SIGN, newline);
+                        }
+                    }
+
+                    #region early
+                    /*
+                    if (p.CommentRegex.Enable)
+                    {
+                        //주석 구간. 시작 인덱스,길이
+                        List<Tuple<int, int>> section = new List<Tuple<int, int>>();
+
+                        int start_start = -1, start_count = -1;
+                        int end_start = -1, end_count = -1;
+
+                        for (int i = 0; i < Builder.Length; i++)
+                        {
+                            if (PredicateCommentSign(Builder, i, p.CommentRegex.SingleCommentSign, ref start_start, ref start_count))
                             {
-                                foreach (var n in new string[] {
-                                Manifest.Proofreader.TextFile.NEWLINE_CRLF,
-                                Manifest.Proofreader.TextFile.NEWLINE_CR,
-                                Manifest.Proofreader.TextFile.NEWLINE_LF
-                            })
+                                for (i = start_count; i < Builder.Length; i++)
                                 {
-                                    if (PredicateCommentSign(Builder, i, n, ref end_start, ref end_count))
+                                    foreach (var n in new string[] {
+                                    Manifest.Proofreader.TextFile.NEWLINE_CRLF,
+                                    Manifest.Proofreader.TextFile.NEWLINE_CR,
+                                    Manifest.Proofreader.TextFile.NEWLINE_LF
+                                })
                                     {
-                                        section.Add(new Tuple<int, int>(start_start, end_count - start_start));
-                                        goto sign_break;
+                                        if (PredicateCommentSign(Builder, i, n, ref end_start, ref end_count))
+                                        {
+                                            section.Add(new Tuple<int, int>(start_start, end_count - start_start));
+                                            goto sign_break;
+                                        }
                                     }
                                 }
-                            }
 
-                        sign_break:
-                            start_start = start_count = -1;
-                            end_start = end_count = -1;
-                        }
-                        else if (PredicateCommentSign(Builder, i, p.CommentRegex.MultiCommentOpenSign, ref start_start, ref start_count))
-                        {
-                            for (i = start_count; i < Builder.Length; i++)
+                            sign_break:
+                                start_start = start_count = -1;
+                                end_start = end_count = -1;
+                            }
+                            else if (PredicateCommentSign(Builder, i, p.CommentRegex.MultiCommentOpenSign, ref start_start, ref start_count))
                             {
-                                if (PredicateCommentSign(Builder, i, p.CommentRegex.MultiCommentCloseSign, ref end_start, ref end_count))
+                                for (i = start_count; i < Builder.Length; i++)
                                 {
-                                    section.Add(new Tuple<int, int>(start_start, end_count - start_start));
-                                    break;
+                                    if (PredicateCommentSign(Builder, i, p.CommentRegex.MultiCommentCloseSign, ref end_start, ref end_count))
+                                    {
+                                        section.Add(new Tuple<int, int>(start_start, end_count - start_start));
+                                        break;
+                                    }
+                                }
+
+                                start_start = start_count = -1;
+                                end_start = end_count = -1;
+                            }
+                        }
+
+                        //주석 관련 처리 부분
+
+                        if (p.RemoveComment)
+                        {
+                            foreach (var sec in section)
+                            {
+                                try
+                                {
+                                    Builder.Remove(sec.Item1, sec.Item2);
+                                }
+                                catch(Exception e)
+                                {
+                                    goto end;
                                 }
                             }
-
-                            start_start = start_count = -1;
-                            end_start = end_count = -1;
                         }
-                    }
+                    }*/
+                    #endregion
 
-                    //주석 관련 처리 부분
-
-                    if (p.RemoveComment)
+                    if (p.IndentConverter.Enable)
                     {
-                        foreach (var sec in section)
+                        string space_block = new string(new char[p.IndentConverter.Space]).Replace('\0', ' ');
+                        string tab = "\t";
+
+                        if (p.IndentConverter.ConvertSpaceToTab)
                         {
-                            try
-                            {
-                                Builder.Remove(sec.Item1, sec.Item2);
-                            }
-                            catch(Exception e)
-                            {
-                                goto end;
-                            }
+                            Builder.Get.Replace(space_block, tab);
+                        }
+                        else
+                        {
+                            Builder.Get.Replace(tab, space_block);
                         }
                     }
-                }*/
 
-                if (p.IndentConverter.Enable)
-                {
-                    string space_block = new string(new char[p.IndentConverter.Space]).Replace('\0', ' ');
-                    string tab = "\t";
+                    {
+                        StreamWriter writer = null;
 
-                    if (p.IndentConverter.ConvertSpaceToTab)
-                    {
-                        Builder.Replace(space_block, tab);
-                    }
-                    else
-                    {
-                        Builder.Replace(tab, space_block);
+                        if (p.Encoding.Enable)
+                        {
+                            writer = new StreamWriter(dest, Encoding.GetEncoding(p.Encoding.EncodingName));
+                        }
+                        else
+                        {
+                            writer = new StreamWriter(dest, reader.CurrentEncoding);
+                        }
+
+                        writer.Write(Builder.Get);
+                        writer.Flush();
+                        goto end;
                     }
                 }
 
-                {
-                    StreamWriter writer = null;
+            end:
 
-                    if (p.Encoding.Enable)
-                    {
-                        writer = new StreamWriter(dest, Encoding.GetEncoding(p.Encoding.EncodingName));
-                    }
-                    else
-                    {
-                        writer = new StreamWriter(dest, reader.CurrentEncoding);
-                    }
-
-                    writer.Write(Builder);
-                    writer.Flush();
-                    goto end;
-                }
+                Builder.Get.Clear();
+                return processed;
             }
-
-        end:
-
-            Builder.Clear();
-            return processed;
         }
 
         private static bool PredicateCommentSign(StringBuilder builder, int start_index, string find_str, ref int start, ref int count)
