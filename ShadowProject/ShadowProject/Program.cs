@@ -166,7 +166,7 @@ namespace ShadowProject
             });
         }
 
-        private static void LOG(ShadowProjectProccessor.Handle.LogLevel arg1, string arg2, string arg3)
+        private static void LOG(ShadowProjectProccessor.Handle.LogLevel arg1, object arg2, object arg3)
         {
             ConsoleColor color = ConsoleColor.White;
 

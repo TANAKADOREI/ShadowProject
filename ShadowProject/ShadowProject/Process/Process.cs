@@ -31,7 +31,7 @@ namespace ShadowProject
 
             public string OriginalDirectory;
             //<level,tag,msg>
-            public Action<LogLevel, string, string> Log;
+            public Action<LogLevel, object, object> Log;
             public Func<bool> Retry;//retry : true, ignore : false
         }
 
@@ -206,21 +206,159 @@ namespace ShadowProject
 
             Running = true;
 
-            var target_dirs = PreviewTargetDirs();
-
+            if (!Directory.Exists(m_manifest.DestDirectory))
             {
-                foreach (var d in target_dirs.Item1)
-                {
-                    FindTargetFilesAndSync(new DirectoryInfo(d));
-                }
+                Directory.CreateDirectory(m_manifest.DestDirectory);
             }
 
-            OptimizeDirectory(new DirectoryInfo(m_manifest.DestDirectory));
+            var target_dirs = PreviewTargetDirs();
+            HashSet<string> target_files = new HashSet<string>();
+
+            foreach (var d in target_dirs.Item1)
+            {
+                GetFiles(target_files, new DirectoryInfo(d));
+            }
+
+            OptimizingDirectory__AsymmetryRemoval(target_files);
+
+            OptimizingFile__AsymmetryRemoval(target_files);
+
+            RemoveNonTargetFromComparisonFile(target_files);
+
+            OptimizeDirectory__Empty(new DirectoryInfo(m_manifest.DestDirectory));
+
+            SyncTargetFiles(target_files);
 
             Running = false;
         }
 
-        private void OptimizeDirectory(DirectoryInfo info)
+        private void SyncTargetFiles(HashSet<string> target_files)
+        {
+            foreach (var f in target_files)
+            {
+                FileProcessing(new FileInfo(f));
+            }
+        }
+
+        private void RemoveNonTargetFromComparisonFile(HashSet<string> target_files)
+        {
+            var comparision = m_manifest.Selection.FileComparison;
+            List<string> remove_target = new List<string>();
+
+            foreach (string path in target_files)
+            {
+                FileInfo source_file = new FileInfo(path);
+
+                var reuslt = LOGIC(m_manifest.Selection.FileComparison.Logic, () =>
+                {
+                    return (bool?)true;
+                }, new Tuple<int, Func<bool?>>(
+                    m_manifest.Selection.FileComparison.Priority__FileInfo__CompareSize,
+                    () =>
+                    {
+                        if (!comparision.Use__FileInfo__CompareSize) return null;
+                        return IF_INVERSE(!ComparePredicate__Size(source_file), comparision.N__FileInfo__CompareSize);
+                    }
+                ), new Tuple<int, Func<bool?>>(
+                    m_manifest.Selection.FileComparison.Priority__FileInfo__CompareCreatedDate,
+                    () =>
+                    {
+                        if (!comparision.Use__FileInfo__CompareCreatedDate) return null;
+                        return IF_INVERSE(!ComparePredicate__CreatedDate(source_file), comparision.N__FileInfo__CompareCreatedDate);
+                    }
+                ), new Tuple<int, Func<bool?>>(
+                    m_manifest.Selection.FileComparison.Priority__FileInfo__CompareHash,
+                    () =>
+                    {
+                        if (!comparision.Use__FileInfo__CompareHash) return null;
+                        return IF_INVERSE(!ComparePredicate__Hash(source_file), comparision.N__FileInfo__CompareHash);
+                    }
+                ), new Tuple<int, Func<bool?>>(
+                    m_manifest.Selection.FileComparison.Priority__FileInfo__CompareLastAccessedDate,
+                    () =>
+                    {
+                        if (!comparision.Use__FileInfo__CompareLastAccessedDate) return null;
+                        return IF_INVERSE(!ComparePredicate__LastAccessedDate(source_file), comparision.N__FileInfo__CompareLastAccessedDate);
+                    }
+                ), new Tuple<int, Func<bool?>>(
+                    m_manifest.Selection.FileComparison.Priority__FileInfo__CompareLastModifiedDate,
+                    () =>
+                    {
+                        if (!comparision.Use__FileInfo__CompareLastModifiedDate) return null;
+                        return IF_INVERSE(!ComparePredicate__LastModifiedDate(source_file), comparision.N__FileInfo__CompareLastModifiedDate);
+                    }
+                ));
+
+                if (reuslt == null || !reuslt.Value)
+                {
+                    remove_target.Add(path);
+                }
+            }
+
+            foreach (var f in remove_target)
+            {
+                target_files.Remove(f);
+            }
+        }
+
+        private void OptimizingFile__AsymmetryRemoval(HashSet<string> target_files)
+        {
+            foreach (var dest_file in Directory.EnumerateFiles(m_manifest.DestDirectory, "*", SearchOption.AllDirectories))
+            {
+                if (!target_files.Contains(ConvertDestToSource(dest_file)))
+                {
+                re:
+                    try
+                    {
+                        File.Delete(dest_file);
+                        m_handle.Log(Handle.LogLevel.SUCCESS, "Delete file", dest_file);
+
+                    }
+                    catch (Exception e)
+                    {
+                        m_handle.Log(Handle.LogLevel.FAIL, e.GetType(), e);
+                        if (m_handle.Retry()) goto re;
+                    }
+                }
+            }
+        }
+
+        //일단 대칭인 파일들 대칭인지 확인후 하나도 대칭 파일이 포함되지 않는 폴더라면 지우기
+        private void OptimizingDirectory__AsymmetryRemoval(HashSet<string> target_files)
+        {
+            foreach (var dest_dir in Directory.EnumerateDirectories(m_manifest.DestDirectory, "*", SearchOption.AllDirectories))
+            {
+                bool contains = false;
+                int in_file_count = 0;
+                foreach (var dest_file in Directory.EnumerateFiles(dest_dir))
+                {
+                    in_file_count++;
+                    if (target_files.Contains(ConvertDestToSource(Path.GetFullPath(dest_file))))
+                    {
+                        contains = true;
+                        break;
+                    }
+                }
+
+                if (!contains)
+                {
+                    if (in_file_count == 0) continue;//빈폴더는 제외
+                    re:
+                    try
+                    {
+                        Directory.Delete(dest_dir, true);
+                        m_handle.Log(Handle.LogLevel.SUCCESS, "Delete Dir", dest_dir);
+                    }
+                    catch (Exception e)
+                    {
+                        m_handle.Log(Handle.LogLevel.FAIL, e.GetType(), e);
+                        if (m_handle.Retry()) goto re;
+                    }
+                }
+            }
+        }
+
+        private void OptimizeDirectory__Empty(DirectoryInfo info)
         {
             try
             {
@@ -228,17 +366,21 @@ namespace ShadowProject
                 {
                     var subdirs = d.GetDirectories();
 
-                    if (subdirs.Length == 0 && d.GetFiles().Length == 0) d.Delete();
+                    if (d.GetDirectories().Length == 0 && d.GetFiles().Length == 0)
+                    {
+                        d.Delete();
+                        m_handle.Log(Handle.LogLevel.SUCCESS, "Delete Dir", d.FullName);
+                    }
 
                     foreach (var sd in subdirs)
                     {
-                        OptimizeDirectory(sd);
+                        OptimizeDirectory__Empty(sd);
                     }
                 }
             }
             catch (Exception e)
             {
-                m_handle.Log(Handle.LogLevel.IGNORE, nameof(OptimizeDirectory), e.ToString());
+                m_handle.Log(Handle.LogLevel.IGNORE, nameof(OptimizeDirectory__Empty), e.ToString());
             }
         }
 
@@ -314,60 +456,24 @@ namespace ShadowProject
 
         //하위 파일은 건들지 않음
         //해당폴더 내에서 일어남
-        private void FindTargetFilesAndSync(DirectoryInfo dir)
+        private void GetFiles(HashSet<string> target_files, DirectoryInfo dir)
         {
-            HashSet<string> updated_dest_files = new HashSet<string>();
-
-
             foreach (var f in dir.EnumerateFiles())
             {
-                //TaskQueue.Add(() =>
+                if (GetFiles(f))
                 {
-                    string dest_file = null;
-                    PredicateCheckAndSync(f, out dest_file);
-
-                    if (dest_file != null)
-                        updated_dest_files.Add(dest_file);
-                }//);
-            }
-
-            //TaskQueue.WaitForRemainTask();
-
-            DirectoryInfo dest = new DirectoryInfo(ConvertSourceToDest(dir.FullName));
-
-            if (dest.Exists)
-            {
-                foreach (FileInfo dest_file in dest.EnumerateFiles())
-                {
-                    //업데이트 목록에 있는가? || 삭제된 파일은 아닌지?
-                    if (!File.Exists(ConvertDestToSource(dest_file.FullName)))
-                    {
-                    re:
-                        try
-                        {
-                            dest_file.Delete();
-                        }
-                        catch (Exception e)
-                        {
-                            m_handle.Log(Handle.LogLevel.FAIL, e.GetType().Name, e.Message);
-                            if (m_handle.Retry()) goto re;
-                        }
-                    }
+                    target_files.Add(Path.GetFullPath(f.FullName));
                 }
             }
         }
 
-        private bool PredicateCheckAndSync(FileInfo source_file, out string dest_file)
+        private bool GetFiles(FileInfo source_file)
         {
             var regex = m_manifest.Selection.FileSelectionRegex;
 
             var result = LOGIC(m_manifest.Selection.FileSelectionRegex.Logic, () =>
             {
-                FileInfo _dest_file;
-                DirectoryInfo _dest_parent;
-                bool r = FileProcessing(source_file, out _dest_file, out _dest_parent);
-
-                return new { result = r, file = _dest_file, dir = _dest_parent };
+                return (bool?)true;
             }, new Tuple<int, Func<bool?>>(
                 m_manifest.Selection.FileSelectionRegex.Priority__ExtRegex,
                 () =>
@@ -399,54 +505,14 @@ namespace ShadowProject
                     if (!regex.Use__FilePathRegex) return null;
                     return IF_INVERSE(REGEX(source_file.FullName, regex.Regex__FilePathRegex), regex.N__FilePathRegex);
                 }
-            ),
-
-
-            new Tuple<int, Func<bool?>>(
-                m_manifest.Selection.FileSelectionRegex.Priority__FileInfo__CompareSize,
-                () =>
-                {
-                    if (!regex.Use__FileInfo__CompareSize) return null;
-                    return IF_INVERSE(!ComparePredicate__Size(source_file), regex.N__FileInfo__CompareSize);
-                }
-            ), new Tuple<int, Func<bool?>>(
-                m_manifest.Selection.FileSelectionRegex.Priority__FileInfo__CompareCreatedDate,
-                () =>
-                {
-                    if (!regex.Use__FileInfo__CompareCreatedDate) return null;
-                    return IF_INVERSE(!ComparePredicate__CreatedDate(source_file), regex.N__FileInfo__CompareCreatedDate);
-                }
-            ), new Tuple<int, Func<bool?>>(
-                m_manifest.Selection.FileSelectionRegex.Priority__FileInfo__CompareHash,
-                () =>
-                {
-                    if (!regex.Use__FileInfo__CompareHash) return null;
-                    return IF_INVERSE(!ComparePredicate__Hash(source_file), regex.N__FileInfo__CompareHash);
-                }
-            ), new Tuple<int, Func<bool?>>(
-                m_manifest.Selection.FileSelectionRegex.Priority__FileInfo__CompareLastAccessedDate,
-                () =>
-                {
-                    if (!regex.Use__FileInfo__CompareLastAccessedDate) return null;
-                    return IF_INVERSE(!ComparePredicate__LastAccessedDate(source_file), regex.N__FileInfo__CompareLastAccessedDate);
-                }
-            ), new Tuple<int, Func<bool?>>(
-                m_manifest.Selection.FileSelectionRegex.Priority__FileInfo__CompareLastModifiedDate,
-                () =>
-                {
-                    if (!regex.Use__FileInfo__CompareLastModifiedDate) return null;
-                    return IF_INVERSE(!ComparePredicate__LastModifiedDate(source_file), regex.N__FileInfo__CompareLastModifiedDate);
-                }
             ));//<- add file predicate
 
-            if (result == null || result.file == null)
+            if (result == null)
             {
-                dest_file = null;
                 return false;
             }
 
-            dest_file = Path.GetFullPath(result.file.FullName);
-            return result.result;
+            return result.Value;
         }
 
         private string ConvertAbsToNoBaseRel(string base_path, string path)
@@ -531,8 +597,10 @@ namespace ShadowProject
         }
 
         //반환값 : 처리됨 여부
-        private bool FileProcessing(FileInfo file, out FileInfo dest_file, out DirectoryInfo dest_parent)
+        private bool FileProcessing(FileInfo file)
         {
+            FileInfo dest_file;
+            DirectoryInfo dest_parent;
             FileStream source_stream, dest_stream;
             if (!GetFileStream(file, out dest_file, out dest_parent, out source_stream, out dest_stream)) return false;
 

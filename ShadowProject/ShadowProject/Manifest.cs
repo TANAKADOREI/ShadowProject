@@ -44,26 +44,6 @@ namespace ShadowProject
                 public bool Use__FilePathRegex = false;
                 public bool N__FilePathRegex = false;
                 public string Regex__FilePathRegex = "";
-
-                public int Priority__FileInfo__CompareLastModifiedDate = 0;
-                public bool Use__FileInfo__CompareLastModifiedDate = false;
-                public bool N__FileInfo__CompareLastModifiedDate = false;
-
-                public int Priority__FileInfo__CompareLastAccessedDate = 0;
-                public bool Use__FileInfo__CompareLastAccessedDate = false;
-                public bool N__FileInfo__CompareLastAccessedDate = false;
-
-                public int Priority__FileInfo__CompareCreatedDate = 0;
-                public bool Use__FileInfo__CompareCreatedDate = false;
-                public bool N__FileInfo__CompareCreatedDate = false;
-
-                public int Priority__FileInfo__CompareHash = 0;
-                public bool Use__FileInfo__CompareHash = false;
-                public bool N__FileInfo__CompareHash = false;
-
-                public int Priority__FileInfo__CompareSize = 0;
-                public bool Use__FileInfo__CompareSize = false;
-                public bool N__FileInfo__CompareSize = false;
             }
 
             public class DirSearchRegex : LogicItem
@@ -86,11 +66,37 @@ namespace ShadowProject
                 public string Regex__DirPathRegex = "";
             }
 
+            public class FileCompare : LogicItem
+            {
+                public int Priority__FileInfo__CompareLastModifiedDate = 0;
+                public bool Use__FileInfo__CompareLastModifiedDate = false;
+                public bool N__FileInfo__CompareLastModifiedDate = false;
+
+                public int Priority__FileInfo__CompareLastAccessedDate = 0;
+                public bool Use__FileInfo__CompareLastAccessedDate = false;
+                public bool N__FileInfo__CompareLastAccessedDate = false;
+
+                public int Priority__FileInfo__CompareCreatedDate = 0;
+                public bool Use__FileInfo__CompareCreatedDate = false;
+                public bool N__FileInfo__CompareCreatedDate = false;
+
+                public int Priority__FileInfo__CompareHash = 0;
+                public bool Use__FileInfo__CompareHash = false;
+                public bool N__FileInfo__CompareHash = false;
+
+                public int Priority__FileInfo__CompareSize = 0;
+                public bool Use__FileInfo__CompareSize = false;
+                public bool N__FileInfo__CompareSize = false;
+            }
+
             [JsonProperty("DirectorySelectionRegex")]
             public DirSearchRegex DirectorySelectionRegex = new DirSearchRegex();
 
             [JsonProperty("FileSelectionRegex")]
             public FileSearchRegex FileSelectionRegex = new FileSearchRegex();
+
+            [JsonProperty("FileComparison")]
+            public FileCompare FileComparison = new FileCompare();
         }
 
         public class Proofreader : Item
