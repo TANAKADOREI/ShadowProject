@@ -100,11 +100,9 @@
 ```
 {
 //명시적 매니 페스트 버전 확인용
-  "MANIFEST_VERSION": 1,
-  //원본 디렉터리(동기화될 원본)
-  "SourceDirectory": "C:\\CMAKE_DIR",
-  //복사될 도착 디렉터리
-  "DestDirectory": "C:\\CPY_CMAKE_DIR",
+  "MANIFEST_VERSION": 3,
+  //파일 복사 방향
+  "FromSourceToDest": true,
   //타겟팅 방식
   "Selection": {
   //첫번째 로직, 디렉터리 경로 검사
@@ -213,6 +211,15 @@
       }
     ],
     "Enable": false
+  },
+  //동기화 프로세스
+  "SyncProcessing": {
+  //비대칭 디렉터리 제거
+    "RemoveAsymmetricDirectories": true,
+    //비대칭 파일 제거
+    "RemoveAsymmetricFiles": true,
+    //비어있는 디렉터리 제거
+    "RemoveEmptyDirectories": true
   }
 }
 ```
