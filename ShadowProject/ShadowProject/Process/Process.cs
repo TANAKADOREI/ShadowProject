@@ -29,11 +29,17 @@ namespace ShadowProject
                 IGNORE,
             }
 
-            public string OriginalDirectory;
+            public string SourceDirectory;
+            public string DestDirectory;
             //<level,tag,msg>
             public Action<LogLevel, object, object> Log;
             public Func<bool> Retry;//retry : true, ignore : false
         }
+
+        public const string NICKNAME_NAME_SEP = "--";
+        public const string NAME_MANIFEST = "MANIFEST.json";
+        public const string NAME_CONFIG = "CONFIG.json";
+        public const string NAME_DB = "DB.sqlite";
 
         private TaskPool TaskQueue;
         private Pool<StringBuilder> StringBuilderPool;
@@ -44,14 +50,14 @@ namespace ShadowProject
         private Config m_config;
         private Manifest m_manifest;
 
-        private string NICKNAME;
+        private readonly string NICKNAME;
 
         public ShadowProjectProccessor(string nickname, Handle handle)
         {
-            NICKNAME = $"{nickname}--";
+            NICKNAME = nickname;
             m_handle = handle;
             OpenDB();
-            UpdateSDWP();
+            LoadSDWP(m_handle.SourceDirectory, m_handle.DestDirectory);
         }
 
         ~ShadowProjectProccessor()
@@ -74,133 +80,125 @@ namespace ShadowProject
 
         private string GetSDWPFilePath(string name)
         {
-            return Path.GetFullPath(Path.Combine(GetSDWPDirPath(m_handle.OriginalDirectory), name));
+            return Path.GetFullPath(Path.Combine(GetSDWPDirPath(m_handle.SourceDirectory), name));
         }
 
         private T GetJsonDataFile<T>(string name, T only_create__instance = default) where T : new()
         {
             string path = null;
-            if (File.Exists(path = Path.Combine(GetSDWPDirPath(m_handle.OriginalDirectory), name)))
+
+            JsonSerializerSettings settings = new JsonSerializerSettings();
+            settings.Formatting = Formatting.Indented;
+
+            if (File.Exists(path = Path.Combine(GetSDWPDirPath(m_handle.SourceDirectory), name)))
             {
-                return JsonConvert.DeserializeObject<T>(File.ReadAllText(path));
+                return JsonConvert.DeserializeObject<T>(File.ReadAllText(path), settings);
             }
             else
             {
                 T obj = only_create__instance == null ? new T() : only_create__instance;
-                File.WriteAllText(path, JsonConvert.SerializeObject(obj, Formatting.Indented));
+                File.WriteAllText(path, JsonConvert.SerializeObject(obj, settings));
                 return obj;
             }
         }
 
-        public void UpdateSDWP()
+        public void SetPath(string source_dir_path, string dest_dir_path)
+        {
+            m_handle.SourceDirectory = m_manifest.SourceDirectory = source_dir_path;
+            m_handle.DestDirectory = m_manifest.DestDirectory = dest_dir_path;
+        }
+
+        public void LoadSDWP(string source_dir_path, string dest_dir_path)
         {
             if (Running) return;
 
-            m_config = GetJsonDataFile<Config>(NICKNAME + "CONFIG.json");
-            m_manifest = GetJsonDataFile<Manifest>(NICKNAME + "MANIFEST.json", new Manifest()
-            {
-                SourceDirectory = Path.GetFullPath(m_handle.OriginalDirectory),
-                DestDirectory = Path.GetFullPath(m_handle.OriginalDirectory)
-            });
+            m_config = GetJsonDataFile<Config>(NICKNAME + NICKNAME_NAME_SEP + NAME_CONFIG);
+            m_manifest = GetJsonDataFile<Manifest>(NICKNAME + NICKNAME_NAME_SEP + NAME_MANIFEST);
 
-            m_manifest.SourceDirectory = Path.GetFullPath(m_manifest.SourceDirectory);
-            m_manifest.DestDirectory = Path.GetFullPath(m_manifest.DestDirectory);
+            m_manifest.SourceDirectory = Path.GetFullPath(source_dir_path);
+            m_manifest.DestDirectory = Path.GetFullPath(dest_dir_path);
 
             TaskQueue = new TaskPool(m_config.ThreadCount);
             StringBuilderPool = new Pool<StringBuilder>(() => new StringBuilder(), m_config.StringBuilderPoolCapacity);
             BufferPool = new Pool<byte[]>(() => new byte[m_config.BufferSize], m_config.BufferPoolCapacity);
+            return;
         }
 
-        public void DeleteShadow()
+        public void DuplicateInfo(string dest_name, ref ShadowProjectProccessor _this)
         {
-            string path = GetSDWPFilePath(NICKNAME + "CONFIG.json");
+            Dispose();
+
+            File.Copy(GetSDWPFilePath(NICKNAME + NICKNAME_NAME_SEP + NAME_CONFIG),
+                GetSDWPFilePath(dest_name + NICKNAME_NAME_SEP + NAME_CONFIG));
+
+            File.Copy(GetSDWPFilePath(NICKNAME + NICKNAME_NAME_SEP + NAME_MANIFEST),
+                GetSDWPFilePath(dest_name + NICKNAME_NAME_SEP + NAME_MANIFEST));
+
+            File.Copy(GetSDWPFilePath(NICKNAME + NICKNAME_NAME_SEP + NAME_DB),
+                GetSDWPFilePath(dest_name + NICKNAME_NAME_SEP + NAME_DB));
+
+            _this = null;
+        }
+
+        public void Rename(string nickname, ref ShadowProjectProccessor _this)
+        {
+            Dispose();
+
+            File.Move(GetSDWPFilePath(NICKNAME + NICKNAME_NAME_SEP + NAME_CONFIG),
+                GetSDWPFilePath(nickname + NICKNAME_NAME_SEP + NAME_CONFIG));
+
+            File.Move(GetSDWPFilePath(NICKNAME + NICKNAME_NAME_SEP + NAME_MANIFEST),
+                GetSDWPFilePath(nickname + NICKNAME_NAME_SEP + NAME_MANIFEST));
+
+            File.Move(GetSDWPFilePath(NICKNAME + NICKNAME_NAME_SEP + NAME_DB),
+                GetSDWPFilePath(nickname + NICKNAME_NAME_SEP + NAME_DB));
+
+            _this = null;
+        }
+
+        public void Delete(ref ShadowProjectProccessor _this)
+        {
+            Dispose();
+
+            string path = GetSDWPFilePath(NICKNAME + NICKNAME_NAME_SEP + NAME_CONFIG);
             if (File.Exists(path)) File.Delete(path);
 
-            path = GetSDWPFilePath(NICKNAME + "MANIFEST.json");
+            path = GetSDWPFilePath(NICKNAME + NICKNAME_NAME_SEP + NAME_MANIFEST);
             if (File.Exists(path)) File.Delete(path);
 
-            path = GetSDWPFilePath(NICKNAME + SQLDB_NAME);
+            path = GetSDWPFilePath(NICKNAME + NICKNAME_NAME_SEP + NAME_DB);
             if (File.Exists(path)) File.Delete(path);
 
-            if (Directory.Exists(GetSDWPDirPath(m_handle.OriginalDirectory)))
+            if (Directory.Exists(GetSDWPDirPath(m_handle.SourceDirectory)))
             {
-                if (Directory.GetFiles(GetSDWPDirPath(m_handle.OriginalDirectory)).Length == 0)
+                if (Directory.GetFiles(GetSDWPDirPath(m_handle.SourceDirectory)).Length == 0)
                 {
-                    Directory.Delete(GetSDWPDirPath(m_handle.OriginalDirectory));
+                    Directory.Delete(GetSDWPDirPath(m_handle.SourceDirectory));
                 }
             }
+
+            _this = null;
         }
 
-        private bool IF_INVERSE(bool logic_result, bool n)
-        {
-            if (n)
-            {
-                return !logic_result;
-            }
-            else
-            {
-                return logic_result;
-            }
-        }
-
-        private bool REGEX(string input, string pattern)
-        {
-            return Regex.IsMatch(input, pattern);
-        }
-
-        private RESULT LOGIC<RESULT>(string Logic, Func<RESULT> successed, params Tuple<int, Func<bool?>>[] lam)
-        {
-            List<bool> rs = new List<bool>();
-
-            foreach (var box in from l in lam orderby l.Item1 ascending select l)
-            {
-            re:
-                bool? result = null;
-                try
-                {
-                    result = box.Item2();
-                }
-                catch (Exception e)
-                {
-                    m_handle.Log(Handle.LogLevel.FAIL, e.StackTrace, e.ToString());
-
-                    if (m_handle.Retry()) goto re;
-                }
-
-                if (result == null) continue;
-
-                rs.Add(result.Value);
-            }
-
-            if (Logic == Manifest.LogicItem.LOGIC_OR)
-            {
-                if (rs.Contains(true))
-                {
-                    return successed();
-                }
-            }
-            else if (Logic == Manifest.LogicItem.LOGIC_AND)
-            {
-                if (!rs.Contains(false))
-                {
-                    return successed();
-                }
-            }
-            else
-            {
-                throw new Exception("unknown logic");
-            }
-
-            return default;
-        }
-
-        //동기화될 파일은 미리보기를 지원하지 않는다 모든 파일을 다 입력하면 메모리를 많이 먹을것으로 예측되므로 굳지 추가 하지 않음
         public Tuple<List<string>, List<string>> PreviewTargetDirs()
         {
             return GetDirectories(new DirectoryInfo(m_manifest.SourceDirectory));
         }
 
-        public void Processing()
+        public HashSet<string> PreviewTargetFiles()
+        {
+            var target_dirs = PreviewTargetDirs();
+            HashSet<string> target_files = new HashSet<string>();
+
+            foreach (var d in target_dirs.Item1)
+            {
+                GetFiles(target_files, new DirectoryInfo(d));
+            }
+
+            return target_files;
+        }
+
+        public void Processing(ref ShadowProjectProccessor _this)
         {
             if (Running) return;
 
@@ -211,24 +209,19 @@ namespace ShadowProject
                 Directory.CreateDirectory(m_manifest.DestDirectory);
             }
 
-            var target_dirs = PreviewTargetDirs();
-            HashSet<string> target_files = new HashSet<string>();
+            HashSet<string> target_files = PreviewTargetFiles();
 
-            foreach (var d in target_dirs.Item1)
-            {
-                GetFiles(target_files, new DirectoryInfo(d));
-            }
+            if (m_manifest.SyncProcessing.RemoveAsymmetricDirectories) OptimizingDirectory__AsymmetryRemoval(target_files);
 
-            OptimizingDirectory__AsymmetryRemoval(target_files);
-
-            OptimizingFile__AsymmetryRemoval(target_files);
+            if (m_manifest.SyncProcessing.RemoveAsymmetricFiles) OptimizingFile__AsymmetryRemoval(target_files);
 
             RemoveNonTargetFromComparisonFile(target_files);
 
-            OptimizeDirectory__Empty(new DirectoryInfo(m_manifest.DestDirectory));
+            if (m_manifest.SyncProcessing.RemoveEmptyDirectories) OptimizeDirectory__Empty(new DirectoryInfo(m_manifest.DestDirectory));
 
             SyncTargetFiles(target_files);
 
+            _this = null;
             Running = false;
         }
 
@@ -388,19 +381,22 @@ namespace ShadowProject
         private Tuple<List<string>, List<string>> GetDirectories(DirectoryInfo root)
         {
             Tuple<List<string>, List<string>> targets = new Tuple<List<string>, List<string>>(new List<string>(), new List<string>());
+
+            if (root.Attributes.HasFlag(FileAttributes.Hidden)) return targets;
+
             var regex = m_manifest.Selection.DirectorySelectionRegex;
 
             targets.Item1.Add(Path.GetFullPath(root.FullName));
             targets.Item2.Add(ConvertSourceToDest(root.FullName));
 
-            foreach (var sub in root.EnumerateDirectories("*", SearchOption.AllDirectories))
+            foreach (var sub in root.EnumerateDirectories())
             {
-
-                LOGIC(regex.Logic, () =>
+                var result = LOGIC(regex.Logic, () =>
                 {
                     targets.Item1.Add(Path.GetFullPath(sub.FullName));
                     targets.Item2.Add(ConvertSourceToDest(sub.FullName));
-                    return (object)null;
+
+                    return (bool?)true;
                 }, new Tuple<int, Func<bool?>>
                 (
                     m_manifest.Selection.DirectorySelectionRegex.Priority__DirNameRegex,
@@ -449,6 +445,13 @@ namespace ShadowProject
                     }
                 )
                 );
+
+                if (result != null && result.Value)
+                {
+                    var dirs = GetDirectories(sub);
+                    targets.Item1.AddRange(dirs.Item1);
+                    targets.Item2.AddRange(dirs.Item2);
+                }
             }
 
             return targets;
@@ -460,6 +463,8 @@ namespace ShadowProject
         {
             foreach (var f in dir.EnumerateFiles())
             {
+                if (f.Attributes.HasFlag(FileAttributes.Hidden)) continue;
+
                 if (GetFiles(f))
                 {
                     target_files.Add(Path.GetFullPath(f.FullName));
@@ -513,33 +518,6 @@ namespace ShadowProject
             }
 
             return result.Value;
-        }
-
-        private string ConvertAbsToNoBaseRel(string base_path, string path)
-        {
-            string temp = Path.GetFullPath(path).Replace(Path.GetFullPath(base_path), "");
-
-            if (temp[0] == '/' || temp[0] == '\\')
-            {
-                temp = temp.Remove(0, 1);
-            }
-
-            if (temp[temp.Length - 1] == '/' || temp[temp.Length - 1] == '\\')
-            {
-                temp = temp.Remove(temp.Length - 1, 1);
-            }
-
-            return temp;
-        }
-
-        private string ConvertSourceToDest(string source_file)
-        {
-            return Path.GetFullPath(source_file).Replace(Path.GetFullPath(m_manifest.SourceDirectory), Path.GetFullPath(m_manifest.DestDirectory));
-        }
-
-        private string ConvertDestToSource(string dest_file)
-        {
-            return Path.GetFullPath(dest_file).Replace(Path.GetFullPath(m_manifest.DestDirectory), Path.GetFullPath(m_manifest.SourceDirectory));
         }
 
         private bool GetFileStream(FileInfo source_file, out FileInfo dest_file, out DirectoryInfo dest_parent, out FileStream source, out FileStream dest)
@@ -606,8 +584,8 @@ namespace ShadowProject
 
             m_handle.Log(Handle.LogLevel.NONE, "Begin Sync", $"{file}->{dest_file}");
 
-            using (FileStream source = source_stream)
-            using (FileStream dest = dest_stream)
+            using (FileStream source = (m_manifest.FromSourceToDest) ? source_stream : dest_stream)
+            using (FileStream dest = (m_manifest.FromSourceToDest) ? dest_stream : source_stream)
             {
                 try
                 {

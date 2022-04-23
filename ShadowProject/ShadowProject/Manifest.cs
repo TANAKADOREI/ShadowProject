@@ -23,6 +23,7 @@ namespace ShadowProject
 
         public class Selector : Item
         {
+
             public class FileSearchRegex : LogicItem
             {
                 public int Priority__FileNameRegex = 0;
@@ -163,21 +164,29 @@ namespace ShadowProject
             public TextFile[] Target_TextFile = { new TextFile() };
         }
 
-        public const uint MANIFEST_VERSION = 1;
+        public class SyncProcess
+        {
+            public bool RemoveAsymmetricDirectories = true;
+            public bool RemoveAsymmetricFiles = true;
+            public bool RemoveEmptyDirectories = true;
+        }
 
-        [JsonProperty("MANIFEST_VERSION")]
+        public const uint MANIFEST_VERSION = 3;
+
         public uint ManifestVersion = MANIFEST_VERSION;
 
-        [JsonProperty("SourceDirectory")]
+        [JsonIgnore]
         public string SourceDirectory = "";
 
-        [JsonProperty("DestDirectory")]
+        [JsonIgnore]
         public string DestDirectory = "";
 
-        [JsonProperty("Selection")]
+        public bool FromSourceToDest = true;
+
         public Selector Selection = new Selector();
 
-        [JsonProperty("FileProofreader")]
         public Proofreader FileProofreader = new Proofreader();
+
+        public SyncProcess SyncProcessing = new SyncProcess();
     }
 }

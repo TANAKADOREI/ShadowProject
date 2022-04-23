@@ -17,7 +17,7 @@ namespace ShadowProject
             return AppDomain.CurrentDomain.BaseDirectory;
         }
 
-        static Dictionary<string, string> g_registered_sync_directories = new Dictionary<string, string>();
+        static Dictionary<string, Tuple<string, string>> g_registered_sync_directories = new Dictionary<string, Tuple<string, string>>();
 
         static void LoadReigsteredDirs()
         {
@@ -30,7 +30,7 @@ namespace ShadowProject
                 File.WriteAllText(path, JsonConvert.SerializeObject(g_registered_sync_directories));
             }
 
-            g_registered_sync_directories = JsonConvert.DeserializeObject<Dictionary<string, string>>(File.ReadAllText(path));
+            g_registered_sync_directories = JsonConvert.DeserializeObject<Dictionary<string, Tuple<string, string>>>(File.ReadAllText(path));
         }
 
         static void SaveRegisteredDirs()
@@ -49,7 +49,7 @@ namespace ShadowProject
             }
 
             LOG(ShadowProjectProccessor.Handle.LogLevel.NONE, builder.ToString(), g_registered_sync_directories[builder.ToString()]);
-            Sync(builder.ToString(),g_registered_sync_directories[builder.ToString()]);
+            Sync(builder.ToString());
         }
 
         static void Main(string[] args)
@@ -74,11 +74,14 @@ namespace ShadowProject
             //add menu func
             List<Tuple<string, Action>> functions = new List<Tuple<string, Action>>();
             functions.Add(new Tuple<string, Action>(nameof(ShowList), ShowList));
-            functions.Add(new Tuple<string, Action>(nameof(Register), Register));
-            functions.Add(new Tuple<string, Action>(nameof(SyncAll), SyncAll));
+            functions.Add(new Tuple<string, Action>(nameof(RegisterDirectory), RegisterDirectory));
+            functions.Add(new Tuple<string, Action>(nameof(RemoveRegisterDirectory), RemoveRegisterDirectory));
+            functions.Add(new Tuple<string, Action>(nameof(RemoveRegisterAllDirectory), RemoveRegisterAllDirectory));
             functions.Add(new Tuple<string, Action>(nameof(Sync), Sync));
-            functions.Add(new Tuple<string, Action>(nameof(DeleteShadow), DeleteShadow));
-            functions.Add(new Tuple<string, Action>(nameof(DeleteAllShadow), DeleteAllShadow));
+            functions.Add(new Tuple<string, Action>(nameof(SyncAll), SyncAll));
+            functions.Add(new Tuple<string, Action>(nameof(EditRegistration), EditRegistration));
+            functions.Add(new Tuple<string, Action>(nameof(RegistrationReplication), RegistrationReplication));
+            functions.Add(new Tuple<string, Action>(nameof(ForceResetProgram), ForceResetProgram));
             functions.Add(new Tuple<string, Action>("Exit", () => { Environment.Exit(0); }));
 
             while (true)
@@ -110,11 +113,12 @@ namespace ShadowProject
                 }
 
             end:
-                LOG(ShadowProjectProccessor.Handle.LogLevel.SUCCESS,"Done.","");
+                LOG(ShadowProjectProccessor.Handle.LogLevel.SUCCESS, "Done.", "");
                 Console.ReadLine();
                 Console.Clear();
             }
         }
+
 
         private static string ConsoleInput(string title, Predicate<string> predicate = null)
         {
@@ -156,14 +160,23 @@ namespace ShadowProject
             return result;
         }
 
-        private static ShadowProjectProccessor GenSDWPP(string nickname,string dir)
+        private static ShadowProjectProccessor GenSDWP(string nickname)
         {
-            return new ShadowProjectProccessor(nickname, new ShadowProjectProccessor.Handle()
+            try
             {
-                Log = LOG,
-                OriginalDirectory = dir,
-                Retry = RETRY
-            });
+                return new ShadowProjectProccessor(nickname, new ShadowProjectProccessor.Handle()
+                {
+                    Log = LOG,
+                    SourceDirectory = g_registered_sync_directories[nickname].Item1,
+                    DestDirectory = g_registered_sync_directories[nickname].Item2,
+                    Retry = RETRY,
+                });
+            }
+            catch (Exception e)
+            {
+                LOG(ShadowProjectProccessor.Handle.LogLevel.IGNORE, e.Message, e.ToString());
+                return null;
+            }
         }
 
         private static void LOG(ShadowProjectProccessor.Handle.LogLevel arg1, object arg2, object arg3)
@@ -207,27 +220,115 @@ namespace ShadowProject
                 case ConsoleKey.Y:
                     return true;
                 case ConsoleKey.N:
+                    LOG(ShadowProjectProccessor.Handle.LogLevel.IGNORE, "Ignored", "");
                     return false;
                 default:
                     goto re;
             }
         }
 
-        private static void DeleteShadow(string nickname, string dir_path)
+
+        #region Input
+
+        private static bool InputLogic<RESULT>(Nullable<RESULT> nullable, Action<RESULT> successed) where RESULT : struct
         {
-            using (ShadowProjectProccessor proccessor = GenSDWPP(nickname, dir_path))
+            if (nullable != null) successed(nullable.Value);
+
+            return nullable != null;
+        }
+
+        //func<index,msg>
+        private static int? InputIndex(int size, Func<int, string> item)
+        {
+            for (int i = 0; i < size; i++)
             {
-                proccessor.Dispose();
-                proccessor.DeleteShadow();
+                Console.WriteLine($"[{i}] : {item(i)}");
+            }
+            return ConsoleInput2<int>("select index", _ => int.Parse(_), _ => 0 <= _ && _ < size);
+        }
+
+        #endregion
+
+        #region Func
+
+        private static void RegisterDirectory(string nickname, string source_dir_path, string dest_dir_path)
+        {
+            LoadReigsteredDirs();
+            try
+            {
+                if (g_registered_sync_directories.ContainsKey(nickname))
+                {
+                    LOG(ShadowProjectProccessor.Handle.LogLevel.FAIL, "already exists", "");
+                }
+
+                g_registered_sync_directories.Add(nickname, new Tuple<string, string>(source_dir_path, dest_dir_path));
+
+                GenSDWP(nickname).Dispose();
+
+                SaveRegisteredDirs();
+                return;
+            }
+            catch (Exception e)
+            {
+                LOG(ShadowProjectProccessor.Handle.LogLevel.FAIL, e.StackTrace, e.ToString());
             }
         }
 
-        private static void Sync(string nickname, string dir_path)
+        public static void EditRegistration(string old_nickname, string nickname, string source_dir_path, string dest_dir_path)
         {
-            using (ShadowProjectProccessor proccessor = GenSDWPP(nickname, dir_path))
+            source_dir_path = Path.GetFullPath(source_dir_path);
+            dest_dir_path = Path.GetFullPath(dest_dir_path);
+
+            LoadReigsteredDirs();
+
+            if (!g_registered_sync_directories.ContainsKey(old_nickname))
             {
-                proccessor.Processing();
+                return;
             }
+
+            var p = GenSDWP(old_nickname);
+            p.Rename(nickname, ref p);
+
+            g_registered_sync_directories.Remove(old_nickname);
+            g_registered_sync_directories.Add(nickname, new Tuple<string, string>(source_dir_path, dest_dir_path));
+
+            SaveRegisteredDirs();
+        }
+
+        private static void DeleteRegisterDirectory(string nickname)
+        {
+            if (!g_registered_sync_directories.ContainsKey(nickname)) return;
+
+            ShadowProjectProccessor proccessor = GenSDWP(nickname);
+            {
+                if (proccessor == null) return;
+                proccessor.Dispose();
+                proccessor.Delete(ref proccessor);
+            }
+
+            g_registered_sync_directories.Remove(nickname);
+        }
+
+        private static void Sync(string nickname)
+        {
+            ShadowProjectProccessor proccessor = GenSDWP(nickname);
+            {
+                if (proccessor == null) return;
+                proccessor.Processing(ref proccessor);
+            }
+        }
+
+        #endregion
+
+        #region Menu
+
+        private static void ForceResetProgram()
+        {
+            LoadReigsteredDirs();
+            g_registered_sync_directories.Clear();
+            SaveRegisteredDirs();
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
         }
 
         private static void ShowList()
@@ -242,32 +343,24 @@ namespace ShadowProject
         {
             LoadReigsteredDirs();
             var arr = g_registered_sync_directories.ToArray();
-            for (int i = 0; i < arr.Length; i++)
-            {
-                Console.WriteLine($"[{i}] : {arr[i].Key}--{arr[i].Value}");
-            }
-            int? index = ConsoleInput2<int>("select index", _ => int.Parse(_), _ => 0 <= _ && _ < arr.Length);
-
-            if (index == null) return;
-
-            Sync(arr[index.Value].Key, arr[index.Value].Value);
+            InputLogic(InputIndex(arr.Length, i => $"{arr[i].Key}--{arr[i].Value}"),
+                _ =>
+                {
+                    Sync(arr[_].Key);
+                });
         }
 
-        private static void DeleteShadow()
+        private static void RemoveRegisterDirectory()
         {
             LoadReigsteredDirs();
             var arr = g_registered_sync_directories.ToArray();
-            for (int i = 0; i < arr.Length; i++)
-            {
-                Console.WriteLine($"[{i}] : {arr[i].Key}--{arr[i].Value}");
-            }
-            int? index = ConsoleInput2<int>("select index", _ => int.Parse(_), _ => 0 <= _ && _ < arr.Length);
-
-            if (index == null) return;
-
-            DeleteShadow(arr[index.Value].Key, arr[index.Value].Value);
-            g_registered_sync_directories.Remove(arr[index.Value].Key);
-            SaveRegisteredDirs();
+            InputLogic(InputIndex(arr.Length, i => $"{arr[i].Key}--{arr[i].Value}"),
+                _ =>
+                {
+                    DeleteRegisterDirectory(arr[_].Key);
+                    g_registered_sync_directories.Remove(arr[_].Key);
+                    SaveRegisteredDirs();
+                });
         }
 
         private static void SyncAll()
@@ -278,7 +371,7 @@ namespace ShadowProject
                 try
                 {
                     LOG(ShadowProjectProccessor.Handle.LogLevel.NONE, $"[{i.Key}]:{i.Value}", "Sync Begin");
-                    Sync(i.Key,i.Value);
+                    Sync(i.Key);
                     LOG(ShadowProjectProccessor.Handle.LogLevel.SUCCESS, $"[{i.Key}]:{i.Value}", "Sync End");
                 }
                 catch (Exception e)
@@ -288,7 +381,7 @@ namespace ShadowProject
             }
         }
 
-        private static void DeleteAllShadow()
+        private static void RemoveRegisterAllDirectory()
         {
             LoadReigsteredDirs();
             foreach (var i in g_registered_sync_directories)
@@ -296,7 +389,7 @@ namespace ShadowProject
                 try
                 {
                     LOG(ShadowProjectProccessor.Handle.LogLevel.NONE, $"[{i.Key}]:{i.Value}", "Delete Begin");
-                    DeleteShadow(i.Key, i.Value);
+                    DeleteRegisterDirectory(i.Key);
                     LOG(ShadowProjectProccessor.Handle.LogLevel.SUCCESS, $"[{i.Key}]:{i.Value}", "Delete End");
                     g_registered_sync_directories.Remove(i.Key);
                 }
@@ -308,25 +401,51 @@ namespace ShadowProject
             SaveRegisteredDirs();
         }
 
-        private static void Register()
+        private static void RegisterDirectory()
         {
-            string dir_path = Path.GetFullPath(ConsoleInput("Source directory path to sync", _ => Directory.Exists(_)));
-            string name = ConsoleInput("directory alias");
-            LoadReigsteredDirs();
-            try
-            {
-                if (g_registered_sync_directories.ContainsKey(name)) throw new Exception($"already exists name -> {name}");
-                using (ShadowProjectProccessor proccessor = GenSDWPP(name,dir_path))
-                {
-                }
-                g_registered_sync_directories.Add(name, dir_path);
-                SaveRegisteredDirs();
-                return;
-            }
-            catch (Exception e)
-            {
-                LOG(ShadowProjectProccessor.Handle.LogLevel.FAIL, e.StackTrace, e.ToString());
-            }
+            string source_dir_path = Path.GetFullPath(ConsoleInput("Source directory path to sync", _ => Directory.Exists(_)));
+            string dest_dir_path = Path.GetFullPath(ConsoleInput("Dest directory path to sync", _ => Path.GetFullPath(_) != source_dir_path));
+
+            string nickname = ConsoleInput("directory nickname",_=>!g_registered_sync_directories.ContainsKey(_));
+            RegisterDirectory(nickname, source_dir_path, dest_dir_path);
         }
+
+        private static void RegistrationReplication()
+        {
+            LoadReigsteredDirs();
+
+            var arr = g_registered_sync_directories.ToArray();
+            InputLogic(InputIndex(arr.Length, i => $"{arr[i].Key}--{arr[i].Value}"),
+                _ =>
+                {
+                    var p = GenSDWP(arr[_].Key);
+                    string new_name = $"{arr[_].Key}-Duplicated";
+                    p.DuplicateInfo(new_name,ref p);
+
+                    g_registered_sync_directories.Add(new_name, arr[_].Value);
+                    SaveRegisteredDirs();
+                });
+        }
+
+        private static void EditRegistration()
+        {
+            LoadReigsteredDirs();
+
+            var arr = g_registered_sync_directories.ToArray();
+            InputLogic(InputIndex(arr.Length, i => $"{arr[i].Key}--{arr[i].Value}"),
+                _ =>
+                {
+                    string new_nickname = ConsoleInput("rename(nickname)",_=>!g_registered_sync_directories.ContainsKey(_));
+                    string new_source_path = ConsoleInput("source path",_=>Directory.Exists(_));
+                    string new_dest_path = ConsoleInput("dest path",_=>Path.GetFullPath(_) != Path.GetFullPath(new_source_path));
+
+                    if (new_dest_path == null || new_source_path == null || new_nickname == null) return;
+
+                    EditRegistration(arr[_].Key,new_nickname,Path.GetFullPath(new_source_path),Path.GetFullPath(new_dest_path));
+
+                    SaveRegisteredDirs();
+                });
+        }
+        #endregion
     }
 }
