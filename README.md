@@ -100,7 +100,11 @@
 ```
 {
 //명시적 매니 페스트 버전 확인용
-  "MANIFEST_VERSION": 3,
+  "MANIFEST_VERSION": 4,
+  //소스 디렉터리 경로
+  "SourceDirectory": "",
+  //도착 디렉터리 경로
+  "DestDirectory": "",
   //파일 복사 방향
   "FromSourceToDest": true,
   //타겟팅 방식
