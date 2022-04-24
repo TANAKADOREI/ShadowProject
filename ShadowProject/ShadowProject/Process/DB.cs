@@ -8,25 +8,12 @@ namespace ShadowProject
 {
     public partial class ShadowProjectProccessor
     {
-        private SQLiteConnection DB__Open(string name, out bool created)
-        {
-            name = GetSDWPFilePath(name);
-            created = false;
-            if (!File.Exists(name))
-            {
-                created = true;
-                SQLiteConnection.CreateFile(name);
-            }
 
-            var conn = new SQLiteConnection($"Data Source={name};Version=3;");
-            conn.Open();
-
-            return conn;
-        }
 
         private static void DateDB__CreateOrOpenTable(SQLiteConnection connection, string table)
         {
-            string SQ_CREATE = $"CREATE TABLE {table} (path TEXT PRIMARY KEY, time INTEGER)";
+            //존재 검사 구현해야함
+            string SQ_CREATE = $"CREATE TABLE IF NOT EXISTS {table} (path TEXT PRIMARY KEY, time INTEGER)";
             SQLiteCommand command = new SQLiteCommand(SQ_CREATE, connection);
             int result = command.ExecuteNonQuery();
         }
@@ -57,37 +44,20 @@ namespace ShadowProject
                 }
             }
 
-            end:
+        end:
             DateDB__UpdateOrInsert(connection, table, path, time);
             return result;
         }
 
-        SQLiteConnection m_sql;
         const string SQL_TABLE__CREATEDTIME = "CREATED_TIME";
         const string SQL_TABLE__LASTACCESSEDTIME = "LASTACCESSED_TIME";
         const string SQL_TABLE__LASTMODIFIEDTIME = "LASTMODIFIED_TIME";
 
-        private void OpenDB()
+        private void PrepareDB()
         {
-            bool created_db;
-            if (m_sql != null) return;
-            m_sql = DB__Open(NICKNAME + NICKNAME_NAME_SEP + NAME_DB, out created_db);
-
-            if (created_db)
-            {
-                DateDB__CreateOrOpenTable(m_sql, SQL_TABLE__CREATEDTIME);
-                DateDB__CreateOrOpenTable(m_sql, SQL_TABLE__LASTACCESSEDTIME);
-                DateDB__CreateOrOpenTable(m_sql, SQL_TABLE__LASTMODIFIEDTIME);
-            }
-        }
-
-        private void CloseDB()
-        {
-            if (m_sql == null) return;
-            m_sql.Dispose();
-            GC.Collect();
-            GC.WaitForPendingFinalizers();
-            m_sql = null;
+            DateDB__CreateOrOpenTable(m_db, SQL_TABLE__CREATEDTIME);
+            DateDB__CreateOrOpenTable(m_db, SQL_TABLE__LASTACCESSEDTIME);
+            DateDB__CreateOrOpenTable(m_db, SQL_TABLE__LASTMODIFIEDTIME);
         }
     }
 }

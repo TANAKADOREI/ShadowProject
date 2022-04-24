@@ -1,4 +1,5 @@
 ﻿using Newtonsoft.Json;
+using System.IO;
 
 namespace ShadowProject
 {
@@ -171,15 +172,21 @@ namespace ShadowProject
             public bool RemoveEmptyDirectories = true;
         }
 
-        public const uint MANIFEST_VERSION = 3;
+        public const uint MANIFEST_VERSION = 4;
 
         public uint ManifestVersion = MANIFEST_VERSION;
 
-        [JsonIgnore]
-        public string SourceDirectory = "";
+        [JsonProperty(nameof(SourceDirectory))]
+        public string Source_Directory = "";
 
         [JsonIgnore]
-        public string DestDirectory = "";
+        public string SourceDirectory => Path.GetFullPath(Source_Directory);
+
+        [JsonProperty(nameof(DestDirectory))]
+        public string Dest_Directory = "";
+        
+        [JsonIgnore]
+        public string DestDirectory => Path.GetFullPath(Dest_Directory);
 
         public bool FromSourceToDest = true;
 

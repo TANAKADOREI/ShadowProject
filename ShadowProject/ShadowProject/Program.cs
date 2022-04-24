@@ -2,6 +2,7 @@
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
+using System.Data.SQLite;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -9,6 +10,28 @@ using System.Text;
 
 namespace ShadowProject
 {
+    public class Profile
+    {
+        public class Config
+        {
+            public uint ThreadCount = 4;
+            public int StringBuilderPoolCapacity = 16;
+            public int BufferSize = 4096;
+            public int BufferPoolCapacity = 16;
+        }
+
+        public const string PROFILES_DIR_NAME = "PROFILES";
+
+        public const string FILE_DB = "DB.sqlite";
+        public const string FILE_MANIFEST = "MANIFEST.json";
+        public const string FILE_CONFIG = "CONFIG.json";
+
+        public string Name;
+
+        public Lazy<Manifest> Manifest;
+        public Lazy<Config> ProcConfig;
+        public Lazy<SQLiteConnection> DB;
+    }
 
     public class Program
     {
@@ -17,44 +40,143 @@ namespace ShadowProject
             return AppDomain.CurrentDomain.BaseDirectory;
         }
 
-        static Dictionary<string, Tuple<string, string>> g_registered_sync_directories = new Dictionary<string, Tuple<string, string>>();
-
-        static void LoadReigsteredDirs()
+        private static T GetJsonDataFile<T>(string profile, string name, T only_create__instance = default) where T : new()
         {
-            const string FILE = "targets.json";
+            string path = null;
 
-            string path = Path.Combine(ExeDirPath(), FILE);
+            JsonSerializerSettings settings = new JsonSerializerSettings();
+            settings.Formatting = Formatting.Indented;
 
-            if (!File.Exists(path))
+            if (File.Exists(path = Path.Combine(ExeDirPath(), Profile.PROFILES_DIR_NAME, profile, name)))
             {
-                File.WriteAllText(path, JsonConvert.SerializeObject(g_registered_sync_directories));
+                return JsonConvert.DeserializeObject<T>(File.ReadAllText(path), settings);
             }
-
-            g_registered_sync_directories = JsonConvert.DeserializeObject<Dictionary<string, Tuple<string, string>>>(File.ReadAllText(path));
+            else
+            {
+                T obj = only_create__instance == null ? new T() : only_create__instance;
+                File.WriteAllText(path, JsonConvert.SerializeObject(obj, settings));
+                return obj;
+            }
         }
 
-        static void SaveRegisteredDirs()
+        private static SQLiteConnection CreateOrOpenDB(string profile, string name, out bool created)
         {
-            const string FILE = "targets.json";
-            string path = Path.Combine(ExeDirPath(), FILE);
-            File.WriteAllText(path, JsonConvert.SerializeObject(g_registered_sync_directories));
+            name = Path.Combine(ExeDirPath(), Profile.PROFILES_DIR_NAME, profile, name);
+            created = false;
+            if (!File.Exists(name))
+            {
+                created = true;
+                SQLiteConnection.CreateFile(name);
+            }
+
+            var conn = new SQLiteConnection($"Data Source={name};Version=3;");
+            conn.Open();
+
+            return conn;
+        }
+
+        private static void CloseDB(SQLiteConnection db)
+        {
+            db.Close();
+            db.Dispose();
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+        }
+
+        static bool ContainsProfileName(string name)
+        {
+            return Directory.GetDirectories(Path.Combine(ExeDirPath(), Profile.PROFILES_DIR_NAME)).Select(_ => Path.GetFileName(_)).Contains(name);
+        }
+
+        static void CreateProfile(string name)
+        {
+            Directory.CreateDirectory(Path.Combine(ExeDirPath(), Profile.PROFILES_DIR_NAME, name));
+            var profile = LoadAndFindProfile(name);
+            BeginSDWP(profile);
+            EndSDWP(profile);
+        }
+
+        static List<Profile> LoadProfiles()
+        {
+            List<Profile> list = new List<Profile>();
+
+            string profile_dir = Path.Combine(ExeDirPath(), Profile.PROFILES_DIR_NAME);
+
+            if (!Directory.Exists(profile_dir))
+            {
+                Directory.CreateDirectory(profile_dir);
+            }
+
+            foreach (var d in Directory.GetDirectories(profile_dir))
+            {
+                Profile profile = new Profile();
+                profile.Name = Path.GetFileName(d);
+
+                profile.ProcConfig = new Lazy<Profile.Config>(() => GetJsonDataFile<Profile.Config>(profile.Name, Profile.FILE_CONFIG));
+                profile.Manifest = new Lazy<Manifest>(() => GetJsonDataFile<Manifest>(profile.Name, Profile.FILE_MANIFEST));
+                profile.DB = new Lazy<SQLiteConnection>(() =>
+               {
+                   bool created_db;
+                   return CreateOrOpenDB(profile.Name, Profile.FILE_DB, out created_db);
+               });
+
+                list.Add(profile);
+            }
+
+            return list;
+        }
+
+        static Profile LoadAndFindProfile(string name)
+        {
+            return FindProfile(LoadProfiles(), name);
+        }
+
+        static Profile FindProfile(List<Profile> profiles, string name)
+        {
+            return profiles.Find(_ => _.Name == name);
+        }
+
+        static void DuplicateProfile(string source_profile, string dest_profile)
+        {
+            CopyDirectory(Path.Combine(ExeDirPath(), Profile.PROFILES_DIR_NAME, source_profile),
+                Path.Combine(ExeDirPath(), Profile.PROFILES_DIR_NAME, dest_profile));
+        }
+
+        static void RenameProfile(string old, string rename)
+        {
+            Directory.Move(Path.Combine(ExeDirPath(), Profile.PROFILES_DIR_NAME, old),
+                Path.Combine(ExeDirPath(), Profile.PROFILES_DIR_NAME, rename));
+        }
+
+        static void ClearProfiles()
+        {
+            Directory.Delete(Path.Combine(ExeDirPath(), Profile.PROFILES_DIR_NAME), true);
+        }
+
+        static void DeleteProfile(string name)
+        {
+            Directory.Delete(Path.Combine(ExeDirPath(), Profile.PROFILES_DIR_NAME, name), true);
         }
 
         static void CommandLineArgsProc(StringBuilder builder)//<- nickname
         {
-            if (!g_registered_sync_directories.ContainsKey(builder.ToString()))
+            string profile_name = builder.ToString();
+
+            var p = LoadAndFindProfile(profile_name);
+
+            if (p == null)
             {
-                LOG(ShadowProjectProccessor.Handle.LogLevel.FAIL, "not found", builder.ToString());
+                LOG(ShadowProjectProccessor.Handle.LogLevel.FAIL, "not found", profile_name);
                 return;
             }
 
-            LOG(ShadowProjectProccessor.Handle.LogLevel.NONE, builder.ToString(), g_registered_sync_directories[builder.ToString()]);
-            Sync(builder.ToString());
+            LOG(ShadowProjectProccessor.Handle.LogLevel.SUCCESS, profile_name, "");
+            Sync(p);
         }
 
         static void Main(string[] args)
         {
-            LoadReigsteredDirs();
+            LoadProfiles();
 
             if (args != null && args.Length > 0)
             {
@@ -74,51 +196,43 @@ namespace ShadowProject
             //add menu func
             List<Tuple<string, Action>> functions = new List<Tuple<string, Action>>();
             functions.Add(new Tuple<string, Action>(nameof(ShowList), ShowList));
-            functions.Add(new Tuple<string, Action>(nameof(RegisterDirectory), RegisterDirectory));
-            functions.Add(new Tuple<string, Action>(nameof(RemoveRegisterDirectory), RemoveRegisterDirectory));
-            functions.Add(new Tuple<string, Action>(nameof(RemoveRegisterAllDirectory), RemoveRegisterAllDirectory));
+            functions.Add(new Tuple<string, Action>(nameof(NewProfile), NewProfile));
+            functions.Add(new Tuple<string, Action>(nameof(DeleteProfile), DeleteProfile));
+            functions.Add(new Tuple<string, Action>(nameof(DeleteAllProfiles), DeleteAllProfiles));
             functions.Add(new Tuple<string, Action>(nameof(Sync), Sync));
             functions.Add(new Tuple<string, Action>(nameof(SyncAll), SyncAll));
-            functions.Add(new Tuple<string, Action>(nameof(EditRegistration), EditRegistration));
-            functions.Add(new Tuple<string, Action>(nameof(RegistrationReplication), RegistrationReplication));
+            functions.Add(new Tuple<string, Action>(nameof(RenameProfile), RenameProfile));
+            functions.Add(new Tuple<string, Action>(nameof(DuplicateProfile), DuplicateProfile));
             functions.Add(new Tuple<string, Action>(nameof(ForceResetProgram), ForceResetProgram));
+            functions.Add(new Tuple<string, Action>(nameof(Preview_Directories), Preview_Directories));
+            functions.Add(new Tuple<string, Action>(nameof(Preview_Files), Preview_Files));
+
+            functions.Add(new Tuple<string, Action>("TryOpenProfileDirectory", () =>
+            {
+                try { Process.Start("explorer.exe", Path.Combine(ExeDirPath(), Profile.PROFILES_DIR_NAME)); }
+                catch { LOG(ShadowProjectProccessor.Handle.LogLevel.FAIL, "Fail", ""); }
+            }));
             functions.Add(new Tuple<string, Action>("Exit", () => { Environment.Exit(0); }));
 
             while (true)
             {
-                Console.WriteLine("Functions...");
-                for (int i = 0; i < functions.Count; i++)
-                {
-                    Console.WriteLine($"[{i}] : {functions[i].Item1}");
-                }
-
-                int? index = ConsoleInput2("Select number", _ => int.Parse(_));
-
-                if (index == null) goto end;
-
-                if (0 <= index && index < functions.Count)
-                {
-                    try
+                Console.WriteLine("============Menu============");
+                var arr = functions;
+                var r = InputLogic(InputIndex(arr.Count, i => arr[i].Item1),
+                    _ =>
                     {
-                        functions[index.Value].Item2();
-                    }
-                    catch (Exception e)
-                    {
-                        Console.WriteLine();
-                        Console.WriteLine("================");
-                        Console.WriteLine(e);
-                        Console.WriteLine("================");
-                        Console.WriteLine();
-                    }
-                }
+                        arr[_].Item2();
+                    });
 
-            end:
+                if (!r) goto end;
+
+                end:
                 LOG(ShadowProjectProccessor.Handle.LogLevel.SUCCESS, "Done.", "");
                 Console.ReadLine();
                 Console.Clear();
+                LoadProfiles();
             }
         }
-
 
         private static string ConsoleInput(string title, Predicate<string> predicate = null)
         {
@@ -160,23 +274,31 @@ namespace ShadowProject
             return result;
         }
 
-        private static ShadowProjectProccessor GenSDWP(string nickname)
+        private static ShadowProjectProccessor BeginSDWP(Profile profile)
         {
             try
             {
-                return new ShadowProjectProccessor(nickname, new ShadowProjectProccessor.Handle()
+                ShadowProjectProccessor proccessor = new ShadowProjectProccessor();
+                proccessor.Start(new ShadowProjectProccessor.Handle()
                 {
                     Log = LOG,
-                    SourceDirectory = g_registered_sync_directories[nickname].Item1,
-                    DestDirectory = g_registered_sync_directories[nickname].Item2,
                     Retry = RETRY,
-                });
+                }, profile);
+
+                return proccessor;
             }
             catch (Exception e)
             {
                 LOG(ShadowProjectProccessor.Handle.LogLevel.IGNORE, e.Message, e.ToString());
                 return null;
             }
+        }
+
+        private static void EndSDWP(Profile profile)
+        {
+            CloseDB(profile.DB.Value);
+            profile = null;
+            GC.Collect();
         }
 
         private static void LOG(ShadowProjectProccessor.Handle.LogLevel arg1, object arg2, object arg3)
@@ -205,6 +327,7 @@ namespace ShadowProject
             Console.Write(arg2);
             Console.ForegroundColor = ConsoleColor.Green;
             Console.Write(']');
+            Console.Write('\t');
             Console.ForegroundColor = color;
             Console.WriteLine(arg3);
 
@@ -242,7 +365,7 @@ namespace ShadowProject
         {
             for (int i = 0; i < size; i++)
             {
-                Console.WriteLine($"[{i}] : {item(i)}");
+                LOG(ShadowProjectProccessor.Handle.LogLevel.NONE, i, item(i));
             }
             return ConsoleInput2<int>("select index", _ => int.Parse(_), _ => 0 <= _ && _ < size);
         }
@@ -251,199 +374,184 @@ namespace ShadowProject
 
         #region Func
 
-        private static void RegisterDirectory(string nickname, string source_dir_path, string dest_dir_path)
+        private static void CopyDirectory(string source_dir_path, string dest_dir_path)
         {
-            LoadReigsteredDirs();
-            try
+            if (!Directory.Exists(dest_dir_path)) Directory.CreateDirectory(dest_dir_path);
+
+            foreach (string dirPath in Directory.GetDirectories(source_dir_path, "*", SearchOption.AllDirectories))
             {
-                if (g_registered_sync_directories.ContainsKey(nickname))
-                {
-                    LOG(ShadowProjectProccessor.Handle.LogLevel.FAIL, "already exists", "");
-                }
-
-                g_registered_sync_directories.Add(nickname, new Tuple<string, string>(source_dir_path, dest_dir_path));
-
-                GenSDWP(nickname).Dispose();
-
-                SaveRegisteredDirs();
-                return;
+                Directory.CreateDirectory(dirPath.Replace(source_dir_path, dest_dir_path));
             }
-            catch (Exception e)
+
+            foreach (string newPath in Directory.GetFiles(source_dir_path, "*.*", SearchOption.AllDirectories))
             {
-                LOG(ShadowProjectProccessor.Handle.LogLevel.FAIL, e.StackTrace, e.ToString());
+                File.Copy(newPath, newPath.Replace(source_dir_path, dest_dir_path), true);
             }
         }
 
-        public static void EditRegistration(string old_nickname, string nickname, string source_dir_path, string dest_dir_path)
+        private static void Sync(Profile profile)
         {
-            source_dir_path = Path.GetFullPath(source_dir_path);
-            dest_dir_path = Path.GetFullPath(dest_dir_path);
-
-            LoadReigsteredDirs();
-
-            if (!g_registered_sync_directories.ContainsKey(old_nickname))
+            if (profile == null)
             {
+                LOG(ShadowProjectProccessor.Handle.LogLevel.IGNORE, "profile is null", "");
                 return;
             }
 
-            var p = GenSDWP(old_nickname);
-            p.Rename(nickname, ref p);
-
-            g_registered_sync_directories.Remove(old_nickname);
-            g_registered_sync_directories.Add(nickname, new Tuple<string, string>(source_dir_path, dest_dir_path));
-
-            SaveRegisteredDirs();
-        }
-
-        private static void DeleteRegisterDirectory(string nickname)
-        {
-            if (!g_registered_sync_directories.ContainsKey(nickname)) return;
-
-            ShadowProjectProccessor proccessor = GenSDWP(nickname);
-            {
-                if (proccessor == null) return;
-                proccessor.Dispose();
-                proccessor.Delete(ref proccessor);
-            }
-
-            g_registered_sync_directories.Remove(nickname);
-        }
-
-        private static void Sync(string nickname)
-        {
-            ShadowProjectProccessor proccessor = GenSDWP(nickname);
+            ShadowProjectProccessor proccessor = BeginSDWP(profile);
             {
                 if (proccessor == null) return;
                 proccessor.Processing(ref proccessor);
             }
+            EndSDWP(profile);
         }
 
         #endregion
 
         #region Menu
 
+        private static void Preview_Directories()
+        {
+            var arr = LoadProfiles();
+            InputLogic(InputIndex(arr.Count, i => arr[i].Name),
+                _ =>
+                {
+                    var p = BeginSDWP(arr[_]);
+                    LOG(ShadowProjectProccessor.Handle.LogLevel.NONE, nameof(p.Manifest.Selection.DirectorySelectionRegex.Regex__DirNameRegex),
+                        p.Manifest.Selection.DirectorySelectionRegex.Regex__DirNameRegex);
+                    LOG(ShadowProjectProccessor.Handle.LogLevel.NONE, nameof(p.Manifest.Selection.DirectorySelectionRegex.Regex__DirPathRegex),
+                        p.Manifest.Selection.DirectorySelectionRegex.Regex__DirPathRegex);
+                    LOG(ShadowProjectProccessor.Handle.LogLevel.NONE, nameof(p.Manifest.Selection.DirectorySelectionRegex.Regex__RelativePathDirNameRegex),
+                        p.Manifest.Selection.DirectorySelectionRegex.Regex__RelativePathDirNameRegex);
+                    foreach (var d in p.PreviewTargetDirs().Item1)
+                    {
+                        LOG(ShadowProjectProccessor.Handle.LogLevel.SUCCESS, d, "");
+                    }
+                    EndSDWP(arr[_]);
+                });
+        }
+
+        private static void Preview_Files()
+        {
+            var arr = LoadProfiles();
+            InputLogic(InputIndex(arr.Count, i => arr[i].Name),
+                _ =>
+                {
+                    var p = BeginSDWP(arr[_]);
+                    LOG(ShadowProjectProccessor.Handle.LogLevel.NONE, nameof(p.Manifest.Selection.FileSelectionRegex.Regex__ExtRegex),
+                        p.Manifest.Selection.FileSelectionRegex.Regex__ExtRegex);
+                    LOG(ShadowProjectProccessor.Handle.LogLevel.NONE, nameof(p.Manifest.Selection.FileSelectionRegex.Regex__FileFullNameRegex),
+                        p.Manifest.Selection.FileSelectionRegex.Regex__FileFullNameRegex);
+                    LOG(ShadowProjectProccessor.Handle.LogLevel.NONE, nameof(p.Manifest.Selection.FileSelectionRegex.Regex__FileNameRegex),
+                        p.Manifest.Selection.FileSelectionRegex.Regex__FileNameRegex);
+                    LOG(ShadowProjectProccessor.Handle.LogLevel.NONE, nameof(p.Manifest.Selection.FileSelectionRegex.Regex__FilePathRegex),
+                        p.Manifest.Selection.FileSelectionRegex.Regex__FilePathRegex);
+                    foreach (var f in p.PreviewTargetFiles())
+                    {
+                        LOG(ShadowProjectProccessor.Handle.LogLevel.SUCCESS, f, "");
+                    }
+                    EndSDWP(arr[_]);
+                });
+        }
+
         private static void ForceResetProgram()
         {
-            LoadReigsteredDirs();
-            g_registered_sync_directories.Clear();
-            SaveRegisteredDirs();
+            ClearProfiles();
             GC.Collect();
-            GC.WaitForPendingFinalizers();
         }
 
         private static void ShowList()
         {
-            foreach (var i in g_registered_sync_directories)
+            foreach (var i in LoadProfiles())
             {
-                Console.WriteLine($"nickname : {i.Key}, path : {i.Value}");
+                LOG(ShadowProjectProccessor.Handle.LogLevel.NONE, i.Name, "");
             }
         }
 
         private static void Sync()
         {
-            LoadReigsteredDirs();
-            var arr = g_registered_sync_directories.ToArray();
-            InputLogic(InputIndex(arr.Length, i => $"{arr[i].Key}--{arr[i].Value}"),
+            var arr = LoadProfiles();
+            InputLogic(InputIndex(arr.Count, i => arr[i].Name),
                 _ =>
                 {
-                    Sync(arr[_].Key);
-                });
-        }
-
-        private static void RemoveRegisterDirectory()
-        {
-            LoadReigsteredDirs();
-            var arr = g_registered_sync_directories.ToArray();
-            InputLogic(InputIndex(arr.Length, i => $"{arr[i].Key}--{arr[i].Value}"),
-                _ =>
-                {
-                    DeleteRegisterDirectory(arr[_].Key);
-                    g_registered_sync_directories.Remove(arr[_].Key);
-                    SaveRegisteredDirs();
+                    LOG(ShadowProjectProccessor.Handle.LogLevel.SUCCESS, "Start", arr[_].Name);
+                    Sync(arr[_]);
+                    LOG(ShadowProjectProccessor.Handle.LogLevel.SUCCESS, "Complete", arr[_].Name);
                 });
         }
 
         private static void SyncAll()
         {
-            LoadReigsteredDirs();
-            foreach (var i in g_registered_sync_directories)
+
+            foreach (var i in LoadProfiles())
             {
                 try
                 {
-                    LOG(ShadowProjectProccessor.Handle.LogLevel.NONE, $"[{i.Key}]:{i.Value}", "Sync Begin");
-                    Sync(i.Key);
-                    LOG(ShadowProjectProccessor.Handle.LogLevel.SUCCESS, $"[{i.Key}]:{i.Value}", "Sync End");
+                    LOG(ShadowProjectProccessor.Handle.LogLevel.NONE, i.Name, "Sync Begin");
+                    Sync(i);
+                    LOG(ShadowProjectProccessor.Handle.LogLevel.SUCCESS, i.Name, "Sync End");
                 }
                 catch (Exception e)
                 {
-                    LOG(ShadowProjectProccessor.Handle.LogLevel.FAIL, $"[{i.Key}]:{i.Value}", e.ToString());
+                    LOG(ShadowProjectProccessor.Handle.LogLevel.FAIL, i.Name, e.ToString());
                 }
             }
         }
 
-        private static void RemoveRegisterAllDirectory()
+        private static void DeleteProfile()
         {
-            LoadReigsteredDirs();
-            foreach (var i in g_registered_sync_directories)
-            {
-                try
-                {
-                    LOG(ShadowProjectProccessor.Handle.LogLevel.NONE, $"[{i.Key}]:{i.Value}", "Delete Begin");
-                    DeleteRegisterDirectory(i.Key);
-                    LOG(ShadowProjectProccessor.Handle.LogLevel.SUCCESS, $"[{i.Key}]:{i.Value}", "Delete End");
-                    g_registered_sync_directories.Remove(i.Key);
-                }
-                catch (Exception e)
-                {
-                    LOG(ShadowProjectProccessor.Handle.LogLevel.FAIL, $"[{i.Key}]:{i.Value}", e.ToString());
-                }
-            }
-            SaveRegisteredDirs();
-        }
-
-        private static void RegisterDirectory()
-        {
-            string source_dir_path = Path.GetFullPath(ConsoleInput("Source directory path to sync", _ => Directory.Exists(_)));
-            string dest_dir_path = Path.GetFullPath(ConsoleInput("Dest directory path to sync", _ => Path.GetFullPath(_) != source_dir_path));
-
-            string nickname = ConsoleInput("directory nickname",_=>!g_registered_sync_directories.ContainsKey(_));
-            RegisterDirectory(nickname, source_dir_path, dest_dir_path);
-        }
-
-        private static void RegistrationReplication()
-        {
-            LoadReigsteredDirs();
-
-            var arr = g_registered_sync_directories.ToArray();
-            InputLogic(InputIndex(arr.Length, i => $"{arr[i].Key}--{arr[i].Value}"),
+            var arr = LoadProfiles();
+            InputLogic(InputIndex(arr.Count, i => $"{arr[i].Name}"),
                 _ =>
                 {
-                    var p = GenSDWP(arr[_].Key);
-                    string new_name = $"{arr[_].Key}-Duplicated";
-                    p.DuplicateInfo(new_name,ref p);
-
-                    g_registered_sync_directories.Add(new_name, arr[_].Value);
-                    SaveRegisteredDirs();
+                    DeleteProfile(arr[_].Name);
+                    LOG(ShadowProjectProccessor.Handle.LogLevel.SUCCESS, "Delete", arr[_].Name);
                 });
         }
 
-        private static void EditRegistration()
+        private static void DeleteAllProfiles()
         {
-            LoadReigsteredDirs();
+            ClearProfiles();
+        }
 
-            var arr = g_registered_sync_directories.ToArray();
-            InputLogic(InputIndex(arr.Length, i => $"{arr[i].Key}--{arr[i].Value}"),
+        private static void NewProfile()
+        {
+            string profile = ConsoleInput("profile name", _ => !ContainsProfileName(_));
+            if (profile == null)
+            {
+                LOG(ShadowProjectProccessor.Handle.LogLevel.IGNORE, "Canceled", "");
+                return;
+            }
+            CreateProfile(profile);
+        }
+
+        private static void DuplicateProfile()
+        {
+            var arr = LoadProfiles();
+            InputLogic(InputIndex(arr.Count, i => $"{arr[i].Name}"),
                 _ =>
                 {
-                    string new_nickname = ConsoleInput("rename(nickname)",_=>!g_registered_sync_directories.ContainsKey(_));
-                    string new_source_path = ConsoleInput("source path",_=>Directory.Exists(_));
-                    string new_dest_path = ConsoleInput("dest path",_=>Path.GetFullPath(_) != Path.GetFullPath(new_source_path));
+                    string new_name = $"{arr[_].Name}-Duplicated-{DateTime.UtcNow.Ticks}";
+                    DuplicateProfile(arr[_].Name, new_name);
+                    LOG(ShadowProjectProccessor.Handle.LogLevel.SUCCESS, "Created", new_name);
+                });
+        }
 
-                    if (new_dest_path == null || new_source_path == null || new_nickname == null) return;
-
-                    EditRegistration(arr[_].Key,new_nickname,Path.GetFullPath(new_source_path),Path.GetFullPath(new_dest_path));
-
-                    SaveRegisteredDirs();
+        private static void RenameProfile()
+        {
+            var arr = LoadProfiles();
+            InputLogic(InputIndex(arr.Count, i => $"{arr[i].Name}"),
+                _ =>
+                {
+                    string rename = ConsoleInput("Rename", _ => !ContainsProfileName(_));
+                    if (rename != null)
+                    {
+                        RenameProfile(arr[_].Name, rename);
+                        LOG(ShadowProjectProccessor.Handle.LogLevel.SUCCESS, arr[_].Name, "->" + rename);
+                    }
+                    else
+                    {
+                        LOG(ShadowProjectProccessor.Handle.LogLevel.NONE, "Canceled", "");
+                    }
                 });
         }
         #endregion

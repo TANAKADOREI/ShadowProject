@@ -2,6 +2,7 @@
 using ShadowProject.Utils;
 using System;
 using System.Collections.Generic;
+using System.Data.SQLite;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -9,16 +10,8 @@ using System.Text.RegularExpressions;
 
 namespace ShadowProject
 {
-    public partial class ShadowProjectProccessor : IDisposable
+    public partial class ShadowProjectProccessor
     {
-        public class Config
-        {
-            public uint ThreadCount = 4;
-            public int StringBuilderPoolCapacity = 16;
-            public int BufferSize = 4096;
-            public int BufferPoolCapacity = 16;
-        }
-
         public class Handle
         {
             public enum LogLevel
@@ -29,8 +22,6 @@ namespace ShadowProject
                 IGNORE,
             }
 
-            public string SourceDirectory;
-            public string DestDirectory;
             //<level,tag,msg>
             public Action<LogLevel, object, object> Log;
             public Func<bool> Retry;//retry : true, ignore : false
@@ -41,143 +32,30 @@ namespace ShadowProject
         public const string NAME_CONFIG = "CONFIG.json";
         public const string NAME_DB = "DB.sqlite";
 
-        private TaskPool TaskQueue;
         private Pool<StringBuilder> StringBuilderPool;
         private Pool<byte[]> BufferPool;
         private bool Running = false;
 
         private Handle m_handle;
-        private Config m_config;
+        private Profile.Config m_config;
         private Manifest m_manifest;
+        private SQLiteConnection m_db;
 
-        private readonly string NICKNAME;
+        public Manifest Manifest => m_manifest;
 
-        public ShadowProjectProccessor(string nickname, Handle handle)
+        public void Start(Handle handle,Profile profile)
         {
-            NICKNAME = nickname;
             m_handle = handle;
-            OpenDB();
-            LoadSDWP(m_handle.SourceDirectory, m_handle.DestDirectory);
-        }
 
-        ~ShadowProjectProccessor()
-        {
-            Dispose();
-        }
+            m_config = profile.ProcConfig.Value;
+            m_manifest = profile.Manifest.Value;
+            m_db = profile.DB.Value;
 
-        public void Dispose()
-        {
-            CloseDB();
-        }
+            PrepareDB();
 
-        private string GetSDWPDirPath(string source_dir_path)
-        {
-            string path = Path.GetDirectoryName(Path.GetFullPath(source_dir_path));
-            path = Path.Combine(path, "__SDWP_PROFILE__");
-            if (!Directory.Exists(path)) Directory.CreateDirectory(path);
-            return path;
-        }
-
-        private string GetSDWPFilePath(string name)
-        {
-            return Path.GetFullPath(Path.Combine(GetSDWPDirPath(m_handle.SourceDirectory), name));
-        }
-
-        private T GetJsonDataFile<T>(string name, T only_create__instance = default) where T : new()
-        {
-            string path = null;
-
-            JsonSerializerSettings settings = new JsonSerializerSettings();
-            settings.Formatting = Formatting.Indented;
-
-            if (File.Exists(path = Path.Combine(GetSDWPDirPath(m_handle.SourceDirectory), name)))
-            {
-                return JsonConvert.DeserializeObject<T>(File.ReadAllText(path), settings);
-            }
-            else
-            {
-                T obj = only_create__instance == null ? new T() : only_create__instance;
-                File.WriteAllText(path, JsonConvert.SerializeObject(obj, settings));
-                return obj;
-            }
-        }
-
-        public void SetPath(string source_dir_path, string dest_dir_path)
-        {
-            m_handle.SourceDirectory = m_manifest.SourceDirectory = source_dir_path;
-            m_handle.DestDirectory = m_manifest.DestDirectory = dest_dir_path;
-        }
-
-        public void LoadSDWP(string source_dir_path, string dest_dir_path)
-        {
-            if (Running) return;
-
-            m_config = GetJsonDataFile<Config>(NICKNAME + NICKNAME_NAME_SEP + NAME_CONFIG);
-            m_manifest = GetJsonDataFile<Manifest>(NICKNAME + NICKNAME_NAME_SEP + NAME_MANIFEST);
-
-            m_manifest.SourceDirectory = Path.GetFullPath(source_dir_path);
-            m_manifest.DestDirectory = Path.GetFullPath(dest_dir_path);
-
-            TaskQueue = new TaskPool(m_config.ThreadCount);
+            //TaskQueue = new TaskPool(m_config.ThreadCount);
             StringBuilderPool = new Pool<StringBuilder>(() => new StringBuilder(), m_config.StringBuilderPoolCapacity);
             BufferPool = new Pool<byte[]>(() => new byte[m_config.BufferSize], m_config.BufferPoolCapacity);
-            return;
-        }
-
-        public void DuplicateInfo(string dest_name, ref ShadowProjectProccessor _this)
-        {
-            Dispose();
-
-            File.Copy(GetSDWPFilePath(NICKNAME + NICKNAME_NAME_SEP + NAME_CONFIG),
-                GetSDWPFilePath(dest_name + NICKNAME_NAME_SEP + NAME_CONFIG));
-
-            File.Copy(GetSDWPFilePath(NICKNAME + NICKNAME_NAME_SEP + NAME_MANIFEST),
-                GetSDWPFilePath(dest_name + NICKNAME_NAME_SEP + NAME_MANIFEST));
-
-            File.Copy(GetSDWPFilePath(NICKNAME + NICKNAME_NAME_SEP + NAME_DB),
-                GetSDWPFilePath(dest_name + NICKNAME_NAME_SEP + NAME_DB));
-
-            _this = null;
-        }
-
-        public void Rename(string nickname, ref ShadowProjectProccessor _this)
-        {
-            Dispose();
-
-            File.Move(GetSDWPFilePath(NICKNAME + NICKNAME_NAME_SEP + NAME_CONFIG),
-                GetSDWPFilePath(nickname + NICKNAME_NAME_SEP + NAME_CONFIG));
-
-            File.Move(GetSDWPFilePath(NICKNAME + NICKNAME_NAME_SEP + NAME_MANIFEST),
-                GetSDWPFilePath(nickname + NICKNAME_NAME_SEP + NAME_MANIFEST));
-
-            File.Move(GetSDWPFilePath(NICKNAME + NICKNAME_NAME_SEP + NAME_DB),
-                GetSDWPFilePath(nickname + NICKNAME_NAME_SEP + NAME_DB));
-
-            _this = null;
-        }
-
-        public void Delete(ref ShadowProjectProccessor _this)
-        {
-            Dispose();
-
-            string path = GetSDWPFilePath(NICKNAME + NICKNAME_NAME_SEP + NAME_CONFIG);
-            if (File.Exists(path)) File.Delete(path);
-
-            path = GetSDWPFilePath(NICKNAME + NICKNAME_NAME_SEP + NAME_MANIFEST);
-            if (File.Exists(path)) File.Delete(path);
-
-            path = GetSDWPFilePath(NICKNAME + NICKNAME_NAME_SEP + NAME_DB);
-            if (File.Exists(path)) File.Delete(path);
-
-            if (Directory.Exists(GetSDWPDirPath(m_handle.SourceDirectory)))
-            {
-                if (Directory.GetFiles(GetSDWPDirPath(m_handle.SourceDirectory)).Length == 0)
-                {
-                    Directory.Delete(GetSDWPDirPath(m_handle.SourceDirectory));
-                }
-            }
-
-            _this = null;
         }
 
         public Tuple<List<string>, List<string>> PreviewTargetDirs()
@@ -393,9 +271,6 @@ namespace ShadowProject
             {
                 var result = LOGIC(regex.Logic, () =>
                 {
-                    targets.Item1.Add(Path.GetFullPath(sub.FullName));
-                    targets.Item2.Add(ConvertSourceToDest(sub.FullName));
-
                     return (bool?)true;
                 }, new Tuple<int, Func<bool?>>
                 (
