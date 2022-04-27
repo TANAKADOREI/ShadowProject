@@ -447,26 +447,28 @@ namespace ShadowProject
         }
 
         //반환값 : 처리됨 여부
-        private bool FileProcessing(FileInfo file)
+        private bool FileProcessing(FileInfo source_file)
         {
-            FileInfo dest_file = new FileInfo(ConvertSourceToDest(file.FullName));
-            FileStream source_stream, dest_stream;
+            FileInfo dest_file = new FileInfo(ConvertSourceToDest(source_file.FullName));
 
-            m_handle.Log(Handle.LogLevel.NONE, "Begin Sync", $"{file}->{dest_file}");
+            if (!source_file.Directory.Exists) source_file.Directory.Create();
+            if (!dest_file.Directory.Exists) dest_file.Directory.Create();
+
+            m_handle.Log(Handle.LogLevel.NONE, "Begin Sync", $"{source_file}->{dest_file}");
 
             try
             {
                 //add file process
                 if (m_manifest.FileProofreader.Enable) {
-                    TextFileEditing(file, dest_file, m_manifest.FileProofreader.Target_TextFile);
+                    TextFileEditing(source_file, dest_file, m_manifest.FileProofreader.Target_TextFile);
                 }
-                else CopyFile(file, dest_file);
-                m_handle.Log(Handle.LogLevel.SUCCESS, "End Sync", $"{file}->{dest_file}");
+                else CopyFile(source_file, dest_file);
+                m_handle.Log(Handle.LogLevel.SUCCESS, "End Sync", $"{source_file}->{dest_file}");
                 return true;
             }
             catch (Exception e)
             {
-                m_handle.Log(Handle.LogLevel.FAIL, "End Sync", $"{file}->{dest_file}, e : {e}");
+                m_handle.Log(Handle.LogLevel.FAIL, "End Sync", $"{source_file}->{dest_file}, e : {e}");
                 return false;
             }
         }
