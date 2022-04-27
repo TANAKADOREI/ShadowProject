@@ -466,7 +466,7 @@ namespace ShadowProject
                 {
                     //add file process
                     if (TextFileEditing(file, m_manifest.FileProofreader.Target_TextFile, source, dest)) return true;
-                    CopyFile(file, source, dest);
+                    CopyFile(file, dest_file);
                     m_handle.Log(Handle.LogLevel.SUCCESS, "End Sync", $"{file}->{dest_file}");
                     return true;
                 }
