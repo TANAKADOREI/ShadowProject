@@ -9,15 +9,9 @@ namespace ShadowProject
     public partial class ShadowProjectProccessor
     {
         //result : processed check. if it has never been dealt with false
-        private bool TextFileEditing(FileInfo file, Manifest.Proofreader.TextFile[] proofreaders, FileStream source, FileStream dest)
+        private void TextFileEditing(FileInfo source,FileInfo dest, Manifest.Proofreader.TextFile[] proofreaders)
         {
-            source.Seek(0, SeekOrigin.Begin);
-            dest.Seek(0, SeekOrigin.Begin);
-
-            bool processed = false;
-
-            StreamReader reader = new StreamReader(source);
-
+            using (StreamReader reader = source.OpenText())
             using (var Builder = StringBuilderPool.Get())
             {
 
@@ -27,10 +21,9 @@ namespace ShadowProject
                 foreach (var p in proofreaders)
                 {
                     if (!p.Enable) continue;
-                    processed = true;
 
                     {
-                        string ext = file.Extension.Length == 0 ? "" : file.Extension.Remove(0, 1);
+                        string ext = source.Extension.Length == 0 ? "" : source.Extension.Remove(0, 1);
                         if (p.Extensions.Where(e => e == ext) == null) continue;
                     }
 
@@ -157,15 +150,16 @@ namespace ShadowProject
 
                         if (p.Encoding.Enable)
                         {
-                            writer = new StreamWriter(dest, Encoding.GetEncoding(p.Encoding.EncodingName));
+                            writer = new StreamWriter(dest.Open(FileMode.CreateNew), Encoding.GetEncoding(p.Encoding.EncodingName));
                         }
                         else
                         {
-                            writer = new StreamWriter(dest, reader.CurrentEncoding);
+                            writer = new StreamWriter(dest.Open(FileMode.CreateNew), reader.CurrentEncoding);
                         }
 
                         writer.Write(Builder.Get);
                         writer.Flush();
+                        writer.Close();
                         goto end;
                     }
                 }
@@ -173,7 +167,6 @@ namespace ShadowProject
             end:
 
                 Builder.Get.Clear();
-                return processed;
             }
         }
 

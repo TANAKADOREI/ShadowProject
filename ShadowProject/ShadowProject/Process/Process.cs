@@ -43,7 +43,7 @@ namespace ShadowProject
 
         public Manifest Manifest => m_manifest;
 
-        public void Start(Handle handle,Profile profile)
+        public void Start(Handle handle, Profile profile)
         {
             m_handle = handle;
 
@@ -395,11 +395,8 @@ namespace ShadowProject
             return result.Value;
         }
 
-        private bool GetFileStream(FileInfo source_file, out FileInfo dest_file, out DirectoryInfo dest_parent, out FileStream source, out FileStream dest)
+        private bool GetFileStream(FileInfo source_file, out FileStream source, out FileStream dest)
         {
-            dest_parent = null;
-            dest_file = null;
-
         re:
             source = null;
             dest = null;
@@ -408,6 +405,7 @@ namespace ShadowProject
             {
                 string dest_file_path = ConvertSourceToDest(source_file.FullName);
                 string dest_parent_dir_path = Path.GetDirectoryName(dest_file_path);
+                DirectoryInfo dest_parent;
 
                 if (!Directory.Exists(dest_parent_dir_path))
                 {
@@ -420,7 +418,6 @@ namespace ShadowProject
 
                 source = new FileStream(source_file.FullName, FileMode.Open, FileAccess.Read);
                 dest = new FileStream(dest_file_path, FileMode.OpenOrCreate, FileAccess.Write);
-                dest_file = new FileInfo(dest_file_path);
                 return true;
             }
             catch (Exception e)
@@ -452,31 +449,26 @@ namespace ShadowProject
         //반환값 : 처리됨 여부
         private bool FileProcessing(FileInfo file)
         {
-            FileInfo dest_file;
-            DirectoryInfo dest_parent;
+            FileInfo dest_file = new FileInfo(ConvertSourceToDest(file.FullName));
             FileStream source_stream, dest_stream;
-            if (!GetFileStream(file, out dest_file, out dest_parent, out source_stream, out dest_stream)) return false;
 
             m_handle.Log(Handle.LogLevel.NONE, "Begin Sync", $"{file}->{dest_file}");
 
-            using (FileStream source = (m_manifest.FromSourceToDest) ? source_stream : dest_stream)
-            using (FileStream dest = (m_manifest.FromSourceToDest) ? dest_stream : source_stream)
+            try
             {
-                try
-                {
-                    //add file process
-                    if (TextFileEditing(file, m_manifest.FileProofreader.Target_TextFile, source, dest)) return true;
-                    CopyFile(file, dest_file);
-                    m_handle.Log(Handle.LogLevel.SUCCESS, "End Sync", $"{file}->{dest_file}");
-                    return true;
+                //add file process
+                if (m_manifest.FileProofreader.Enable) {
+                    TextFileEditing(file, dest_file, m_manifest.FileProofreader.Target_TextFile);
                 }
-                catch (Exception e)
-                {
-                    m_handle.Log(Handle.LogLevel.FAIL, "End Sync", $"{file}->{dest_file}, e : {e}");
-                    return false;
-                }
+                else CopyFile(file, dest_file);
+                m_handle.Log(Handle.LogLevel.SUCCESS, "End Sync", $"{file}->{dest_file}");
+                return true;
             }
-
+            catch (Exception e)
+            {
+                m_handle.Log(Handle.LogLevel.FAIL, "End Sync", $"{file}->{dest_file}, e : {e}");
+                return false;
+            }
         }
     }
 }
