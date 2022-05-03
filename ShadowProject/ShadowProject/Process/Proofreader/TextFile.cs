@@ -150,11 +150,11 @@ namespace ShadowProject
 
                         if (p.Encoding.Enable)
                         {
-                            writer = new StreamWriter(dest.Open(FileMode.CreateNew), Encoding.GetEncoding(p.Encoding.EncodingName));
+                            writer = new StreamWriter(dest.Open(FileMode.OpenOrCreate), Encoding.GetEncoding(p.Encoding.EncodingName));
                         }
                         else
                         {
-                            writer = new StreamWriter(dest.Open(FileMode.CreateNew), reader.CurrentEncoding);
+                            writer = new StreamWriter(dest.Open(FileMode.OpenOrCreate), reader.CurrentEncoding);
                         }
 
                         writer.Write(Builder.Get);

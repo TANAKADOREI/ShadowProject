@@ -1,12 +1,16 @@
 ﻿using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using Octokit;
 using System;
 using System.Collections.Generic;
 using System.Data.SQLite;
 using System.Diagnostics;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
+using System.Net;
 using System.Text;
+using System.Threading;
 
 namespace ShadowProject
 {
@@ -195,7 +199,8 @@ namespace ShadowProject
 
             //add menu func
             List<Tuple<string, Action>> functions = new List<Tuple<string, Action>>();
-            functions.Add(new Tuple<string, Action>(nameof(ShowList), ShowList));
+            functions.Add(new Tuple<string, Action>("Exit", () => { Environment.Exit(0); }));
+            functions.Add(new Tuple<string, Action>(nameof(ShowProfiles), ShowProfiles));
             functions.Add(new Tuple<string, Action>(nameof(NewProfile), NewProfile));
             functions.Add(new Tuple<string, Action>(nameof(DeleteProfile), DeleteProfile));
             functions.Add(new Tuple<string, Action>(nameof(DeleteAllProfiles), DeleteAllProfiles));
@@ -206,13 +211,12 @@ namespace ShadowProject
             functions.Add(new Tuple<string, Action>(nameof(ForceResetProgram), ForceResetProgram));
             functions.Add(new Tuple<string, Action>(nameof(Preview_Directories), Preview_Directories));
             functions.Add(new Tuple<string, Action>(nameof(Preview_Files), Preview_Files));
-
             functions.Add(new Tuple<string, Action>("TryOpenProfileDirectory", () =>
             {
                 try { Process.Start("explorer.exe", Path.Combine(ExeDirPath(), Profile.PROFILES_DIR_NAME)); }
                 catch { LOG(ShadowProjectProccessor.Handle.LogLevel.FAIL, "Fail", ""); }
             }));
-            functions.Add(new Tuple<string, Action>("Exit", () => { Environment.Exit(0); }));
+            functions.Add(new Tuple<string, Action>(nameof(UpdateProgram), UpdateProgram));
 
             while (true)
             {
@@ -409,6 +413,57 @@ namespace ShadowProject
 
         #region Menu
 
+        private static void UpdateProgram()
+        {
+            try
+            {
+                string owner = "TANAKADOREI";
+                string repositoryName = "ShadowProject";
+                string TEMP_DIR = Path.Combine(ExeDirPath(),"TEMP");
+                string CURRENT_DIR = ExeDirPath();
+
+                var client = new GitHubClient(new ProductHeaderValue(repositoryName));
+
+                // Retrieve a List of Releases in the Repository, and get latest using [0]-subscript
+                var releases = client.Repository.Release.GetAll(owner, repositoryName).Result;
+
+                var latest = releases[0].Assets[0].BrowserDownloadUrl;
+
+                string download_file = Path.Combine(ExeDirPath(), "Release.zip");
+
+                using (WebClient webClient = new WebClient())
+                {
+                    webClient.DownloadFileTaskAsync(latest, download_file).Wait();
+                }
+
+                if (!Directory.Exists(TEMP_DIR))
+                {
+                    Directory.CreateDirectory(TEMP_DIR);
+                }
+
+
+                ZipFile.ExtractToDirectory(download_file, TEMP_DIR,true);
+
+                var command_line = new ProcessStartInfo();
+                command_line.FileName = "Updater";
+                command_line.ArgumentList.Add(TEMP_DIR);
+                command_line.ArgumentList.Add(CURRENT_DIR);
+                command_line.ArgumentList.Add("pause");
+                command_line.CreateNoWindow = false;
+                command_line.WindowStyle = ProcessWindowStyle.Normal;
+                Process.Start(command_line);
+                Thread.Sleep(2000);
+
+                Environment.Exit(0);
+            }
+            catch(Exception e)
+            {
+                LOG(ShadowProjectProccessor.Handle.LogLevel.FAIL, e.GetType(), e);
+                LOG(ShadowProjectProccessor.Handle.LogLevel.IGNORE, "Ignored", "");
+                return;
+            }
+        }
+
         private static void Preview_Directories()
         {
             var arr = LoadProfiles();
@@ -459,7 +514,7 @@ namespace ShadowProject
             GC.Collect();
         }
 
-        private static void ShowList()
+        private static void ShowProfiles()
         {
             foreach (var i in LoadProfiles())
             {
