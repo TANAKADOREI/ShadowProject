@@ -448,10 +448,9 @@ namespace ShadowProject
                 command_line.FileName = "Updater";
                 command_line.ArgumentList.Add(TEMP_DIR);
                 command_line.ArgumentList.Add(CURRENT_DIR);
-                command_line.ArgumentList.Add("pause");
                 command_line.CreateNoWindow = false;
                 command_line.WindowStyle = ProcessWindowStyle.Normal;
-                Process.Start(command_line);
+                var proc = Process.Start(command_line);
                 Thread.Sleep(2000);
 
                 Environment.Exit(0);

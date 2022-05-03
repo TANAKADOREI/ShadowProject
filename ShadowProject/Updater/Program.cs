@@ -25,7 +25,7 @@ namespace Updater
         static void Main(string[] args)
         {
             Console.WriteLine("Waiting...");
-            Thread.Sleep(10000);
+            Thread.Sleep(5000);
             CopyDirectory(args[0], args[1]);
             Console.WriteLine("Done");
         }
